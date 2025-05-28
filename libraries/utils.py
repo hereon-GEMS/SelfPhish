@@ -624,7 +624,7 @@ def filterout_artifacts(image, use_median = True, use_gaussian = False, kernel_s
     # visualize([image, im, div, image2], title = ['original', 'filtered', 'ratio'], cmap = 'gray', images_per_row = 2, show_or_plot = 'plot', zoomout_location = 'top right', axis = 'off', colorbar = True, colorbar_location = 'bottom', axin_axis = False, fontsize = 34, label_size = 30, min_max = True, height = 0.11, width = 0.11, position = 'custom', move_h = 0.25, move_v = 0.05)
     return image2
 
-def generate_qr_code(text, file_path='data/qr/qr_code.tif', version = 1, box_size=20, border=2):
+def generate_qr_code(text, file_path='data/qr/qr_code.tif', version = 1, box_size=13, border=2):
     """
     Generates a QR code for the given text and saves it as an image.
 
