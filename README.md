@@ -1,5 +1,6 @@
 # SelfPhish
-## Self-supervised physics-informed generative networks for phase retrieval from a single X-ray hologram
+--- 
+#### Self-supervised physics-informed generative networks for phase retrieval from a single X-ray hologram
 ![SelPhish Architecture](data/images/selfphish.png)
 
 ## 📦 Installation & Setup
@@ -42,10 +43,10 @@
 2. **Use the built-in “spider_hair_best” example**  
    ```python
    spider = experiments.spider_hair_best(
-       idx=[120],                  # which frames to load (single int or list)
-       abs_ratio=5e-4,             # any override defaults go here
+       idx=[120],  # which image to reconstruct
+       abs_ratio=5e-4, # alpha value
        dis_depth=2,
-       dis_type='unet',            # chose discriminator architecture {cnn, unet}
+       dis_type='unet',  # discriminator architecture {cnn, unet}
        model_type='wavelet',       # chose generator architecture. {CNN based Unet, Wavelet based Unet, FC}
        device='cuda:0'
    )
@@ -109,4 +110,5 @@
    ```python
    python qr.py
    ```
+
 Enjoy experimenting with SelfPhish! 🚀  
