@@ -103,6 +103,10 @@
    spider = experiments.my_new_exp(dis_type='patchgan', device='cuda:0')
    model = make_ganrec_model(**spider)
    model.train(iter_num=500)
-   ```
 
+   ```
+4. Try the scrip by running:
+   ```python
+   python qr.py
+   ```
 Enjoy experimenting with SelfPhish! 🚀  
