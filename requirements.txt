@@ -1,0 +1,15 @@
+numpy
+pandas
+Pillow
+scikit-learn
+matplotlib
+quantities
+torch 
+torchvision 
+PyWavelets
+torchmetrics
+ipython
+qrcode
+tqdm
+ipykernel
+#python -m ipykernel install --user --name=selfphish --display-name "Python (selfphish)"
