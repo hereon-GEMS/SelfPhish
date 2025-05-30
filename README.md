@@ -31,6 +31,10 @@
 4. **GPU / CUDA**  
    By default the code uses `cuda:0` if available; you can override via the `device` parameter in your experiment.
 
+5. **Test**
+   ```python
+   python qr.py
+   ```
 ---
 
 ## 🚀 Running an Experiment
@@ -101,7 +105,7 @@
    ```
 3. In your script:
    ```python
-   spider = experiments.my_new_exp(dis_type='patchgan', device='cuda:0')
+   spider = experiments.my_new_exp(dis_type='unet', device='cuda:0')
    model = make_ganrec_model(**spider)
    model.train(iter_num=500)
 
