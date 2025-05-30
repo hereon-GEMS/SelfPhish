@@ -2,6 +2,7 @@ numpy
 pandas
 Pillow
 scikit-learn
+scikit-image
 matplotlib
 quantities
 torch 

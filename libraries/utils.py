@@ -637,6 +637,8 @@ def generate_qr_code(text, file_path='data/qr/qr_code.tif', version = 1, box_siz
     img: The QR code image.
     """
     import qrcode
+    
+        
     # Create a QR code instance
     qr = qrcode.QRCode(
         version=version,  # controls the size of the QR code
@@ -652,6 +654,8 @@ def generate_qr_code(text, file_path='data/qr/qr_code.tif', version = 1, box_siz
     # Create an image of the QR code
     img = qr.make_image(fill='black', back_color='white')
     if file_path is not None:
+        if not os.path.exists(os.path.dirname(file_path)):
+            os.makedirs(os.path.dirname(file_path))    
         img.save(file_path)
         print(f"QR code saved as {file_path}")
     return np.array(img)
