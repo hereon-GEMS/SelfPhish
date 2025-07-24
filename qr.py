@@ -1,5 +1,5 @@
 from libraries.available_experiments import propagate_others
-from libraries.gan4inverse import make_ganrec_model
+from libraries.gan4inverse import solver
 from libraries.utils import generate_qr_code
 from libraries.visualize import visualize
 import torch
@@ -15,6 +15,6 @@ fresnel_prop['device'] = 'cuda:1'
 ssim_list, ground_ssim_list, ground_att_ssim_list = [], [], []
 psnr_list, ground_psnr_list, ground_att_psnr_list = [], [], []
 comparison = []
-model = make_ganrec_model(**fresnel_prop)
+model = solver(**fresnel_prop)
 model.train(iter_num = 400)
 model.visualize(cmap = 'gray', vmode = 'zoom', axis = 'off', plot_axis = 'half', images_per_row=8, fig_size=(20,10), min_max = False)
