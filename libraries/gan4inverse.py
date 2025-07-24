@@ -8,10 +8,10 @@ from gauss_conv import *
 from IPython.display import display
 from torch import optim
 
-class make_ganrec_model(nn.Module):
+class solver(nn.Module):
     # @profile
     def __init__(self, **kwargs):
-        super(make_ganrec_model, self).__init__()
+        super(solver, self).__init__()
         
         self.basic_setup = join_dict(kwargs, json_file)
         self.basic_setup =(prepare_dict(**self.basic_setup))
@@ -422,16 +422,16 @@ class make_ganrec_model(nn.Module):
             self.epoch = i
             timer_starts = time.time()
             self.g_loss, self.d_loss, self.propagated_intensity, self.phase, self.attenuation = self.train_step(self.transformed_images)
-            self.phase_list.append(tensor_to_np(self.phase))if self.append_all else None
             self.attenuation = torch.exp(-1*self.attenuation)
-            self.attenuation_list.append(tensor_to_np(self.attenuation))if self.append_all else None
-            
-            self.propagated_intensity_list.append(tensor_to_np(self.propagated_intensity)) if self.append_all else None
-        
+    
             if not self.append_all:
                 self.phase_list = [tensor_to_np(self.phase)]
                 self.attenuation_list = [tensor_to_np(self.attenuation)]
-                self.propagated_intensity_list =[tensor_to_np(self.propagated_intensity)]    
+                self.propagated_intensity_list =[tensor_to_np(self.propagated_intensity)]   
+            else:
+                self.phase_list.append(tensor_to_np(self.phase))
+                self.attenuation_list.append(tensor_to_np(self.attenuation))
+                self.propagated_intensity_list.append(tensor_to_np(self.propagated_intensity)) 
             
             self.epoch_time.append(time.time() - timer_starts)
             self.metrics('all', task = 'update', rectangle = self.rectangle) if self.append_all else None
@@ -442,7 +442,7 @@ class make_ganrec_model(nn.Module):
                     else:
                         pbar.set_postfix(ssim=f"{self.ssim_list[-1]:.3f}", psnr=f"{self.psnr_list[-1]:.3f}", phase_ssim = f"{self.ground_ssim_list[-1]:.3f}",)
                 else:
-                    pbar.set_postfix(ssim=f"{self.ssim_list[-1]:.3f}", psnr=f"{self.psnr_list[-1]:.3f}",)
+                    pbar.set_postfix(ssim=f"{self.ssim_list[-1]:.3f}", psnr=f"{self.psnr_list[-1]:.3f}",) if self.append_all else None
             
             if  self.update_rate:
                 # self.metrics('all', task = 'update', rectangle = self.rectangle) if not self.append_all else None    
@@ -488,7 +488,7 @@ class make_ganrec_model(nn.Module):
             info['iter_num'] = iter * iter_factor
 
             try:
-                model = make_ganrec_model(**info)
+                model = solver(**info)
                 
                 # print('orig shape', info['image'].shape, 'image shape: ', model.transformed_images.shape, 'fresnel_factor shape: ', model.fresnel_factor.shape, 'base_matrix shape: ', model.base_matrix.shape, 'fresnel_number: ', model.fresnel_number, 'downsampling_factor: ', model.downsampling_factor, d)
                 if ground_model is not None:
@@ -937,7 +937,7 @@ if __name__ == '__main__':
     jd = experiments.jd_mg(downsampling_factor = 2**1, positive_phase = 'relu_inverted', positive_attenuation = 'relu', transformation_type = 'leakyrelu', model_type = 'unet', abs_ratio = 5e-4, dis_depth = 2, dis_type = 'cnn', device = 'cuda:1')
     jd['path'] = jd['path'].transpose()
     jd['path'].shape
-    model = make_ganrec_model(**jd)
+    model = solver(**jd)
     model.train(iter_num = 20)
 
     visualize([model.transformed_images, model.phase, -1*torch.log(model.attenuation)], title = ['Given hologram', 'Phase', 'Absorbance'], cmap = 'gray', images_per_row = 3, vmode = 'zoom', zoomout_location = 'bottom 3', axis = 'off', colorbar = True, colorbar_location = 'right', axin_axis = False, fontsize = 40, label_size = 30, min_max = False, move_hs = [-0.2,0.1,0.2], move_vs = [-0.05, 0.23, -0.05], pad = -0.02)

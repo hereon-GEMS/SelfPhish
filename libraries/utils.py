@@ -816,6 +816,7 @@ def save_dict_to_h5(data_dict, h5_path):
     -----
     >>> save_dict_to_h5({'a': 1, 'b': np.arange(5), 'c': {'d': [1.0, 2.0]}}, 'out.h5')
     """
+    import h5py
     def _recursively_save(group, dictionary):
         for key, item in dictionary.items():
             if isinstance(item, dict):

@@ -50,7 +50,6 @@ def wavelength_m(lam):
 def wavelength_from_energy(energy):
     """if an energy is given without the unit, it automatically assumes it's in keV"""
     energy = eneryg_J(energy)
-    print("energy", energy)
     return h*c/energy
 
 def energy_from_wavelength(lam):
