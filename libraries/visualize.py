@@ -18,6 +18,35 @@ def is_strong_color(color_name):
     h, l, s = colorsys.rgb_to_hls(*rgb)         # Convert to HLS
     return l < 0.5  # Keep colors with low luminance (strong/dark colors)
 strong_colors = sorted([name for name in named_colors if is_strong_color(named_colors[name])])
+
+
+metrics_names_full = [
+    'SSIM (I, I*)', 'PSNR (I, I*)', 'L1 (I,I*)',
+    'SSIM (Φ, φ)', 'PSNR (Φ, φ)', 'L1 (Φ, φ)',
+    'SSIM (A, A*)', 'PSNR (A, A*)', 'L1 (A, A*)'
+]
+metric_column_map = {
+    'SSIM (I, I*)': 'ssim_list',
+    'PSNR (I, I*)': 'psnr_list',
+    'L1 (I,I*)': 'main_diff',
+    'SSIM (Φ, φ)': 'ground_ssim_list',
+    'PSNR (Φ, φ)': 'ground_psnr_list',
+    'L1 (Φ, φ)': 'ground_main_diff_list',
+    'SSIM (A, A*)': 'A_SSIM',
+    'PSNR (A, A*)': 'A_PSNR',
+    'L1 (A, A*)': 'A_L1'
+}
+metric_final_column_map = {
+    'SSIM (I, I*)': 'final_ssim',
+    'PSNR (I, I*)': 'final_psnr',
+    'L1 (I,I*)': 'final_main_diff',
+    'SSIM (Φ, φ)': 'final_ground_ssim',
+    'PSNR (Φ, φ)': 'final_ground_psnr',
+    'L1 (Φ, φ)': 'final_ground_main_diff',
+    'SSIM (A, A*)': 'final_A_SSIM',
+    'PSNR (A, A*)': 'final_A_PSNR',
+    'L1 (A, A*)': 'final_A_L1'
+}
        
 bbox_to_anchors = {
     'lower center': (0.5,-0.17),
@@ -488,7 +517,7 @@ def visualize(images, idx = None, rows = None, cols = None, vmode = 'show', cmap
         description_title, add_length = get_setup_info(dict)
     else:
         add_length = None
-    color
+
     insert_axes = kwargs['insert_axes'] if 'insert_axes' in kwargs.keys() else True
     axin_axis = kwargs['axin_axis'] if 'axin_axis' in kwargs.keys() else True
     legend_size = kwargs['legend_size'] if 'legend_size' in kwargs.keys() else 20
@@ -524,7 +553,8 @@ def visualize(images, idx = None, rows = None, cols = None, vmode = 'show', cmap
     elif zoomout_location == 'otr':
         plot_location = [1.1, 0.7, 0.3, 0.3] if axin_axis == False else [0.0, 1.1, 0.3, 0.3]
     elif zoomout_location == 'bottom 3':
-        zoom_boxes = [[0.0, -0.3, 0.3, 0.3], [0.35, -0.3, 0.3, 0.3], [0.7, -0.3, 0.3, 0.3]]
+        # zoom_boxes = [[0.0, -0.4, 0.3, 0.3], [0.35, -0.4, 0.3, 0.3], [0.7, -0.4, 0.3, 0.3]]
+        zoom_boxes = [[0.0, -0.5, 0.3, 0.3], [0.35, -0.5, 0.3, 0.3], [0.7, -0.5, 0.3, 0.3]]
         positions = ['custom', 'custom', 'custom']
         plot_location = [0.80, 0.0000, 0.2, 0.2] if axin_axis == False else [0.0, 0.0, 0.3, 0.3]
     elif zoomout_location == 'bottom 2':
@@ -570,6 +600,7 @@ def visualize(images, idx = None, rows = None, cols = None, vmode = 'show', cmap
             #convert rects to the range of 0 to 1 with possibility to go beyond 1 and less that 0
             
     def show_with_zoom():
+        
         if zoomout_location != 'bottom 3' and zoomout_location != 'bottom 2':                
                 if use_sns:
                     import seaborn as sns
@@ -593,12 +624,20 @@ def visualize(images, idx = None, rows = None, cols = None, vmode = 'show', cmap
                 axins = []
                 for i in range(rows):
                     for j in range(cols):
-                        ax[i, j].add_patch(plt.Rectangle((lefts[k][i*cols + j], buttoms[k][i*cols + j]), rights[k][i*cols + j] - lefts[k][i*cols + j], tops[k][i*cols + j] - buttoms[k][i*cols + j], edgecolor=colors[k], lw=lw, facecolor='none'))
+                        idx = i*cols + j
+                        if idx >= upper_limit:
+                            continue
+                        ax[i, j].add_patch(plt.Rectangle((lefts[k][idx], buttoms[k][idx]), rights[k][idx] - lefts[k][idx], tops[k][idx] - buttoms[k][idx], edgecolor=colors[k], lw=lw, facecolor='none'))
                         axin = ax[i, j].inset_axes(zoom_boxes[k], transform=ax[i, j].transAxes) 
                         axins.append(axin)
-                [axins[i*cols + j].add_patch(plt.Rectangle((lefts[k][i*cols + j], buttoms[k][i*cols + j]), rights[k][i*cols + j] - lefts[k][i*cols + j], tops[k][i*cols + j] - buttoms[k][i*cols + j], edgecolor=colors[k], lw=lw, facecolor='none')) for i in range(rows) for j in range(cols) if i*cols + j < upper_limit]
-                [axins[i*cols + j].imshow(images[i*cols + j][buttoms[k][i*cols + j]:tops[k][i*cols + j], lefts[k][i*cols + j]:rights[k][i*cols + j]], cmap = cmap[i*cols + j], extent = [lefts[k][i*cols + j], rights[k][i*cols + j],  tops[k][i*cols + j], buttoms[k][i*cols+j], top[i*cols + j]]) for i in range(rows) for j in range(cols) if i*cols + j < upper_limit]
-                [axins[i*cols + j].axis('off') for i in range(rows) for j in range(cols) if i*cols + j < upper_limit]
+                for i in range(rows):
+                    for j in range(cols):
+                        idx = i*cols + j
+                        if idx >= upper_limit:
+                            continue
+                        axins[idx].add_patch(plt.Rectangle((lefts[k][idx], buttoms[k][idx]), rights[k][idx] - lefts[k][idx], tops[k][idx] - buttoms[k][idx], edgecolor=colors[k], lw=lw, facecolor='none'))
+                        axins[idx].imshow(images[idx][buttoms[k][idx]:tops[k][idx], lefts[k][idx]:rights[k][idx]], cmap = cmap[idx], extent = [lefts[k][idx], rights[k][idx],  tops[k][idx], buttoms[k][idx]])
+                        axins[idx].axis('off')
                 
                 # [ax[i,j].indicate_inset_zoom(axins[i*cols + j], edgecolor=colors[k]) for i in range(rows) for j in range(cols) if i*cols + j < upper_limit]   
         return ax, axins
@@ -656,13 +695,11 @@ def visualize(images, idx = None, rows = None, cols = None, vmode = 'show', cmap
             if plot_axis == 'diagonal':
                 prof = np.diag(img)
             else:
-                prof = img[img_shape[0] // 2, 1:img_shape[1]]
+                prof = np.array(img)[img_shape[0] // 2, 1:img_shape[1]]
             profiles.append(prof)
         
-        # Check if normalization (resampling) is needed by comparing profile lengths.
         unique_lengths = {len(p) for p in profiles}
         if len(unique_lengths) > 1:
-            # If sizes differ, choose a common number of points (using the minimum length)
             common_points = min(unique_lengths)
             normalized_profiles = [resample_profile(p, common_points) for p in profiles]
             common_x = np.linspace(0, 1, common_points)
@@ -675,6 +712,8 @@ def visualize(images, idx = None, rows = None, cols = None, vmode = 'show', cmap
         
         # Plot all the (possibly normalized) profiles in a single figure with different line styles.
         fig2, ax2 = plt.subplots(1, 1, figsize=(20, 10))
+        if 'titles' not in locals():
+            titles = ['im' + str(i + 1) for i in range(len(normalized_profiles))]
         legends = (['im' + str(i + 1) for i in range(len(normalized_profiles))]
                 if title == '' or title == 'no_title' else titles)
         for i, prof in enumerate(normalized_profiles):
@@ -793,37 +832,155 @@ def visualize(images, idx = None, rows = None, cols = None, vmode = 'show', cmap
             axins2 = [ax[i,j].inset_axes([0.00, 0.0000, 0.3, 0.3]) for i in range(rows) for j in range(cols) if i*cols + j < upper_limit]
             [axins2[i*cols + j].plot(np.arange(1, right[i*cols + j]), images[i*cols + j][buttom[i*cols + j]+(top[i*cols + j]-buttom[i*cols + j])//2, 1:right[i*cols + j]], color=plot_color) for i in range(rows) for j in range(cols) if i*cols + j < upper_limit]
             [axins2[i*cols + j].axis('off') for i in range(rows) for j in range(cols) if i*cols + j < upper_limit]
-                
+        # inside your plotting function, before you start adding titles/text:
+    def _annotate(
+        ax, text, x, y,
+        fontsize=24,
+        fontweight='bold',
+        color='black',
+        ha='center',
+        va='center',
+        rotation=0,
+        bbox=None,
+        transform=None
+    ):
+        """
+        Helper to add either a title (via set_title) or free text.
+        If transform is None, assumes this is a title and uses ax.set_title();
+        otherwise uses ax.text().
+        """
+        if bbox != 'ignore':
+            if bbox is None:
+                # default journal-style white box
+                bbox = {
+                    "facecolor": "white",
+                    "edgecolor": "black",
+                    "boxstyle": "round,pad=0.2",
+                    "alpha": 0.8
+                }
+        else:
+            bbox = None
+        if transform is None:
+            # use set_title for top-line titles
+            ax.set_title(
+                text, x=x, y=y,
+                fontsize=fontsize,
+                fontweight=fontweight,
+                color=color,
+                horizontalalignment=ha,
+                bbox=bbox
+            )
+        else:
+            ax.text(
+                x, y, text,
+                transform=transform,
+                fontsize=fontsize,
+                fontweight=fontweight,
+                color=color,
+                ha=ha,
+                va=va,
+                rotation=rotation,
+                bbox=bbox
+            )
+
+    # now replace your three blocks with:
 
     if title != 'no_title':
-        fontsize = kwargs['fontsize'] if 'fontsize' in kwargs.keys() else 19
-        # [ax[i, j].set_title(titles[i*cols + j], fontsize=fontsize, y = 1.0, pad=-14) for i in range(rows) for j in range(cols) if i*cols + j < upper_limit]
-        #pad the title
-        title_x = kwargs['title_x'] if 'title_x' in kwargs.keys() else 0.5
-        title_y = kwargs['title_y'] if 'title_y' in kwargs.keys() else 1
-        title_color = kwargs['title_color'] if 'title_color' in kwargs.keys() else 'black'
-        title_color = [title_color] * len(images) if type(title_color) != list else title_color
-        title_horizontalalignment = kwargs['title_horizontalalignment'] if 'title_horizontalalignment' in kwargs.keys() else 'center'
-        title_fontweight = kwargs['title_fontweight'] if 'title_fontweight' in kwargs.keys() else 'bold'
-        [ax[i, j].set_title(titles[i*cols + j], fontsize=fontsize, x = title_x, y = title_y, color = title_color[(i*cols+j)%len(title_color)], horizontalalignment=title_horizontalalignment, fontweight = title_fontweight) for i in range(rows) for j in range(cols) if i*cols + j < upper_limit]
-        
-    #if there is a secoond title
-    second_title = kwargs['second_title'] if 'second_title' in kwargs.keys() else 'no_title'
-    #add it as a text
-    if second_title != 'no_title':
-        #color white, type bold
-        second_title_x = kwargs['second_title_x'] if 'second_title_x' in kwargs.keys() else 0.3
-        second_title_y = kwargs['second_title_y'] if 'second_title_y' in kwargs.keys() else 0.05
-        second_title_color = kwargs['second_title_color'] if 'second_title_color' in kwargs.keys() else 'w'
-        second_title_fontsize = kwargs['second_title_fontsize'] if 'second_title_fontsize' in kwargs.keys() else 28
-        second_title_horizontalalignment= kwargs['second_title_horizontalalignment'] if 'second_title_horizontalalignment' in kwargs.keys() else 'center'
-        second_title_fontweight = kwargs['second_title_fontweight'] if 'second_title_fontweight' in kwargs.keys() else 'bold'
-        if type(second_title_color) != list:
-            second_title_color = [second_title_color] * len(images)
-        
-        [ax[i, j].text(second_title_x, second_title_y, second_title[i*cols + j], horizontalalignment=second_title_horizontalalignment, verticalalignment='center', transform=ax[i, j].transAxes,  c= second_title_color[(i*cols+j)%len(second_title_color)],fontweight = second_title_fontweight,fontsize=second_title_fontsize) for i in range(rows) for j in range(cols) if i*cols + j < upper_limit]
-        
-        
+        title_x  = kwargs.get('title_x', 0.5)
+        title_y  = kwargs.get('title_y', 1.0)
+        title_fs = kwargs.get('title_fontsize', 14)
+        title_cl = kwargs.get('title_color', 'black')
+        title_ha = kwargs.get('title_horizontalalignment', 'center')
+        title_fw = kwargs.get('title_fontweight', 'bold')
+        title_bbox=kwargs.get('title_bbox', 'ignore')
+        # single-color or list
+        title_colors = (
+            [title_cl]*len(images)
+            if not isinstance(title_cl, (list,tuple))
+            else title_cl
+        )
+        for i in range(rows):
+            for j in range(cols):
+                idx = i*cols + j
+                if idx >= upper_limit:
+                    continue
+                _annotate(
+                    ax[i,j],
+                    titles[idx],
+                    title_x, title_y,
+                    color=title_colors[idx % len(title_colors)],
+                    fontsize=title_fs,
+                    fontweight=title_fw,
+                    ha=title_ha,
+                    bbox=title_bbox,
+                )
+    second_title = kwargs.get('second_title', 'no_title')
+    if second_title not in ['no_title', 'no', None]:
+        st_x  = kwargs.get('stx', 0.3)
+        st_y  = kwargs.get('sty', 0.05)
+        st_fs = kwargs.get('stfontsize', 14)
+        st_cl = kwargs.get('stcolor', 'white')
+        st_ha = kwargs.get('sthorizontalalignment', 'center')
+        st_va = kwargs.get('stverticalalignment', 'center')
+        st_fw = kwargs.get('stfontweight', 'bold')
+        st_bbox=kwargs.get('st_bbox', None)
+        st_colors = (
+            [st_cl]*len(images)
+            if not isinstance(st_cl, (list,tuple))
+            else st_cl
+        )
+        for i in range(rows):
+            for j in range(cols):
+                idx = i*cols + j
+                if idx >= upper_limit:
+                    continue
+                _annotate(
+                    ax[i,j],
+                    second_title[idx],
+                    st_x, st_y,
+                    color=st_colors[idx % len(st_colors)],
+                    fontsize=st_fs,
+                    fontweight=st_fw,
+                    ha=st_ha,
+                    va=st_va,
+                    transform=ax[i,j].transAxes,
+                    bbox=st_bbox,
+                )
+
+    third_title = kwargs.get('third_title', 'no_title')
+    if third_title not in ['no_title', 'no', None]:
+        tt_x  = kwargs.get('ttx', -0.05)
+        tt_y  = kwargs.get('tty', 0.5)
+        tt_fs = kwargs.get('ttfontsize', 14)
+        tt_cl = kwargs.get('ttcolor', 'white')
+        tt_ha = kwargs.get('tthorizontalalignment', 'center')        
+        tt_va = kwargs.get('ttverticalalignment', 'center')
+        tt_fw = kwargs.get('ttfontweight', 'bold')
+        tt_bbox=kwargs.get('tt_bbox', None)
+        tt_colors = (
+            [tt_cl]*len(images)
+            if not isinstance(tt_cl, (list,tuple))
+            else tt_cl
+        )
+        for i in range(rows):
+            for j in range(cols):
+                idx = i*cols + j
+                if idx >= upper_limit:
+                    continue
+                _annotate(
+                    ax[i,j],
+                    third_title[idx],
+                    tt_x, tt_y,
+                    color=tt_colors[idx % len(tt_colors)],
+                    fontsize=tt_fs,
+                    fontweight=tt_fw,
+                    ha=tt_ha,
+                    va=tt_va,
+                    rotation=90,
+                    transform=ax[i,j].transAxes,
+                    bbox=tt_bbox,
+                )
+
     # plt.tight_layout()
     if vmode != 'plot':
         fig.patch.set_facecolor('xkcd:white')
@@ -1424,12 +1581,19 @@ class IV:
         self.title_horizontalalignment = kwargs.get("title_horizontalalignment", 'center')
         self.title_fontweight = kwargs.get("title_fontweight", 'bold')
         self.second_title = kwargs.get("second_title", 'no_title')
-        self.second_title_x = kwargs.get("second_title_x", 0.3)
-        self.second_title_y = kwargs.get("second_title_y", 0.05)
-        self.second_title_color = kwargs.get("second_title_color", 'w')
-        self.second_title_fontsize = kwargs.get("second_title_fontsize", 28)
-        self.second_title_horizontalalignment = kwargs.get("second_title_horizontalalignment", 'center')
-        self.second_title_fontweight = kwargs.get("second_title_fontweight", 'bold')
+        self.stx = kwargs.get("stx", 0.3)
+        self.sty = kwargs.get("sty", 0.05)
+        self.stcolor = kwargs.get("stcolor", 'w')
+        self.stfontsize = kwargs.get("stfontsize", 28)
+        self.sthorizontalalignment = kwargs.get("sthorizontalalignment", 'center')
+        self.stfontweight = kwargs.get("stfontweight", 'bold')
+        self.third_title = kwargs.get("third_title", 'no_title')
+        self.ttx = kwargs.get("ttx", 0.3)
+        self.tty = kwargs.get("tty", 0.05)
+        self.ttcolor = kwargs.get("ttcolor", 'w')
+        self.ttfontsize = kwargs.get("ttfontsize", 28)
+        self.tthorizontalalignment = kwargs.get("tthorizontalalignment", 'center')
+        self.ttfontweight = kwargs.get("ttfontweight", 'bold')
 
     def _plot_images(self):
         """Plot the images."""
@@ -1555,7 +1719,7 @@ class IV:
         print(f"available vmode:\n", ['show', 'plot', 'zoom', 'both', 'zoom_with_plot', 'zoom_with_patch', 'all', 'add', 'add_show', 'add_plot', 'add_all'])
         print(f"available colorbar_location:\n", ['right', 'left', 'top', 'bottom'])
         print(f"available title_horizontalalignment:\n", ['center', 'left', 'right'])
-        print(f"available second_title_horizontalalignment:\n", ['center', 'left', 'right'])
+        print(f"available sthorizontalalignment:\n", ['center', 'left', 'right'])
         
     def _prepare_images(self, images, idx):
         """Converts images to a standard format."""
@@ -1658,3 +1822,678 @@ class IV:
         if self.save_path:
             fig.savefig(f"{self.save_path}/{self.save_name or 'plot'}.png", dpi=300)
         plt.show()
+
+
+def plot_comparison(comps, labels=None, title=None, metrics_names=None, extreme_point_at_iteration=None):
+    """
+    Plot all comparison results stored in comps.
+    Args:
+        comps (list): List of comparison results.
+        labels (list, optional): List of labels for each comparison.
+        title (str, optional): Title for the whole plot.
+        metrics_names (list, optional): List of metric display names to use (defaults to metrics_names_full).
+        extreme_point_at_iteration (int or None): The iteration at which to compare the metrics.
+            If None, use the highest iteration that is common in all comps.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    num_comparisons = len(comps)
+    if labels is None:
+        labels = [f'Comparison {i+1}' for i in range(num_comparisons)]
+
+    if metrics_names is None:
+        metrics_names = metrics_names_full
+
+    num_metrics = len(metrics_names)
+    cols = 3
+    rows = int(np.ceil(num_metrics / cols))
+    fig, axs = plt.subplots(rows, cols, figsize=(6*cols, 4*rows))
+    axs = axs.flatten()
+    if title is not None:
+        fig.suptitle(title, fontsize=16)
+
+    # Determine the maximum common iteration length
+    if extreme_point_at_iteration is None:
+        min_len = min(len(comp[0]) if isinstance(comp[0], list) else len(comp[0]) for comp in comps)
+        extreme_point_at_iteration = min_len - 1
+
+    for i, metric_name in enumerate(metrics_names):
+        for j, (comp, label) in enumerate(zip(comps, labels)):
+            metric = comp[i]
+            y = np.array(metric)
+            x = np.arange(len(y))
+            axs[i].plot(x, y, label=label)
+        # Find the extreme value at the specified iteration
+        values_at_iter = []
+        for comp in comps:
+            metric = comp[i]
+            y = np.array(metric)
+            if extreme_point_at_iteration < len(y):
+                values_at_iter.append(y[extreme_point_at_iteration])
+            else:
+                values_at_iter.append(np.nan)
+        if any(key in metric_name.lower() for key in ['ssim', 'psnr']):
+            extreme_val = np.nanmax(values_at_iter)
+            extreme_idx = np.nanargmax(values_at_iter)
+        else:
+            extreme_val = np.nanmin(values_at_iter)
+            extreme_idx = np.nanargmin(values_at_iter)
+        # Highlight the extreme point
+        if not np.isnan(extreme_val):
+            axs[i].scatter(extreme_point_at_iteration, extreme_val, color='red', zorder=5,
+                           label=f'{"Max" if any(key in metric_name.lower() for key in ["ssim", "psnr"]) else "Min"}: {labels[extreme_idx]} ({extreme_val:.3f})')
+            axs[i].annotate(f'{labels[extreme_idx]}\n{extreme_val:.3f}',
+                            (extreme_point_at_iteration, extreme_val),
+                            textcoords="offset points", xytext=(0,10), ha='center', color='red')
+        axs[i].set_title(metric_name)
+        axs[i].legend()
+    plt.tight_layout(rect=[0, 0, 1, 0.95] if title else None)
+    plt.show()
+
+# plot_comparison_scientific already supports metrics_names as an argument, so just ensure it uses metrics_names_full by default
+
+from plotly.subplots import make_subplots
+import warnings # Ensure warnings is imported
+import ipywidgets as widgets
+import plotly.graph_objects as go
+
+def plot_comparison_scientific(
+    comps, labels=None, title=None, metrics_names=None,
+    extreme_point_at_iteration=None, figsize=(18, 12),
+    legend_ncol=4, text_size='large', rows = 3, cols = 3,
+):
+    num_comparisons = len(comps)
+    if num_comparisons == 0:
+        print("No comparison data provided.")
+        return
+
+    if labels is None:
+        labels = [f'Comp {i+1}' for i in range(num_comparisons)]
+
+    if metrics_names is None:
+        metrics_names = [
+            'SSIM (I, I*)', 'PSNR (I, I*)', 'L1 (I, I*)',
+            'SSIM (Φ, φ)', 'PSNR (Φ, φ)', 'L1 (Φ, φ)',
+            'SSIM (A, A*)', 'PSNR (A, A*)', 'L1 (A, A*)'
+        ]
+        metrics_names = [
+            r'SSIM$(I, I^*)$', r'PSNR$(I, I^*)$', r'$L_{1}(I, I^*)$',
+            r'SSIM$(\Phi, \varphi)$', r'PSNR$(\Phi, \varphi)$', r'$L_{1}(\Phi, \varphi)$',
+            r'SSIM$(A, A^*)$', r'PSNR$(A, A^*)$', r'$L_{1}(A, A^*)$'
+        ]
+
+
+    num_metrics = len(metrics_names)
+    
+    # Increase the figure height slightly to make more room for the legend below
+    legend_rows = int(np.ceil(num_comparisons / legend_ncol))
+
+    # 1. Extract group keys (e.g., σ value) and subtypes (e.g., with/without discriminator)
+    if labels is None:
+        labels = [f'Comp {i+1}' for i in range(len(comps))]
+    group_keys = []
+    subtypes = []
+    for label in labels:
+        # Example: "σ = 0.0 without discriminator"
+        parts = label.split(' ')
+        group_keys.append(parts[2])  # e.g., "0.0"
+        subtypes.append(' '.join(parts[3:]))  # e.g., "without discriminator"
+
+    unique_groups = sorted(set(group_keys), key=lambda x: float(x))
+    unique_subtypes = list(dict.fromkeys(subtypes))  # preserve order
+    # 2. Assign colors to groups, line styles/markers to subtypes
+    color_map = plt.get_cmap('tab10')
+    group_color = {g: color_map(i % 10) for i, g in enumerate(unique_groups)}
+    line_styles = ['-', '--', ':', '-.']
+    markers = ['o', '_', '^', 'D', '*', '+', '|', 's']
+    subtype_style = {st: line_styles[i % len(line_styles)] for i, st in enumerate(unique_subtypes)}
+    subtype_marker = {st: markers[i % len(markers)] for i, st in enumerate(unique_subtypes)}
+    
+
+
+    num_metrics = len(metrics_names)
+    rows = int(np.sqrt(num_metrics)) if rows is None else rows
+    cols = int(np.ceil(num_metrics / rows))
+
+
+    fig, axs = plt.subplots(rows, cols, figsize=(figsize[0], figsize[1]), constrained_layout=False)
+    axs = axs.flatten()
+    
+    min_len = min(len(comp[0]) for comp in comps) if comps else 0
+    if min_len == 0:
+        print("No data points for comparison. Skipping plot.")
+        plt.close(fig)
+        return
+
+    if extreme_point_at_iteration is None:
+        extreme_point_at_iteration = min_len - 1
+    elif not (0 <= extreme_point_at_iteration < min_len):
+        import warnings
+        warnings.warn(f"extreme_point_at_iteration ({extreme_point_at_iteration}) is out of bounds for data length {min_len}. Using {min_len-1} instead.")
+        extreme_point_at_iteration = min_len - 1
+
+    x_data = np.arange(min_len)
+    lines = []
+    for i in range(num_metrics):
+        ax = axs[i]
+        metric_name = metrics_names[i]
+        y_data_all_comps = []
+        for j in range(len(comps)):
+            current_y_data = comps[j][i]
+            if isinstance(current_y_data, np.ndarray):
+                if current_y_data.ndim == 0:
+                    y_data = np.array([current_y_data.item()])
+                elif current_y_data.ndim == 1:
+                    y_data = current_y_data.astype(float)
+                else:
+                    y_data = current_y_data.flatten().astype(float)
+            elif isinstance(current_y_data, list):
+                if current_y_data and isinstance(current_y_data[0], np.ndarray):
+                    y_data = np.array([val.item() if isinstance(val, np.ndarray) else val for val in current_y_data], dtype=float)
+                else:
+                    y_data = np.array(current_y_data, dtype=float)
+            else:
+                y_data = np.array(current_y_data, dtype=float)
+
+            plot_x_data = x_data[:len(y_data)]
+            color = group_color[group_keys[j]]
+            linestyle = subtype_style[subtypes[j]]
+            marker = subtype_marker[subtypes[j]]
+            msize     = 10
+            mevery    = max(1, len(y_data)//10)
+            line, = ax.plot(
+                plot_x_data, y_data[:len(plot_x_data)],
+                color      = color,
+                linestyle  = linestyle,
+                marker     = marker,
+                markersize = msize,
+                markevery  = mevery,
+                linewidth  = 2.25,
+                label      = labels[j] if i == 0 else "_nolegend_"
+            )
+            if i == 0:
+                lines.append(line)
+            y_data_all_comps.append(y_data[:min_len])
+
+        # [extreme point logic unchanged...]
+
+        ax.set_title(metric_name, fontsize=text_size)
+        ax.set_xlabel('Iteration', fontsize=text_size)
+        ax.tick_params(axis='both', which='major', labelsize=text_size)
+        ax.grid(True, alpha=0.6)
+
+    for i in range(num_metrics, rows * cols):
+        fig.delaxes(axs[i])
+
+    plt.subplots_adjust(top=0.9, bottom=0.1, hspace=0.3, wspace=0.2)
+    fig.legend(lines, labels, loc='lower center', bbox_to_anchor=(0.5, 0.0),
+               fancybox=True, shadow=True, ncol=legend_ncol, fontsize=text_size)
+
+    if title:
+        fig.suptitle(title, fontsize=text_size, y=0.98)
+    plt.show()     
+
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import ipywidgets as widgets
+from IPython.display import display
+import numpy as np
+import warnings
+# --- Utility to generate a consistent color map ---
+def generate_consistent_color_map(labels):
+    """
+    Generates a consistent color map for a list of labels.
+    Uses Plotly's default color cycle for distinct colors.
+    """
+    # These are Plotly's default discrete colors (Plotly 'plotly' template colors)
+    # You can expand this list if you have more than 10 unique labels,
+    # or use a different color palette (e.g., from plotly.express.colors)
+    plotly_colors = [
+        '#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',
+        '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52'
+    ]
+    plotly_colors = [
+    'blue',      # 0
+    'green',     # 1
+    'orange',    # 2
+    'purple',    # 3
+    'brown',     # 4
+    'red',       # 5
+    'cyan',      # 6
+    'magenta',   # 7
+    'olive',     # 8
+    'teal',      # 9
+    'gold',      # 10
+    'navy',      # 11
+    'darkorange',# 12
+    'lime',      # 13
+    'pink',      # 14
+    'gray',      # 15
+    ]
+    color_map = {}
+    for i, label in enumerate(labels):
+        color_map[label] = plotly_colors[i % len(plotly_colors)]
+    return color_map
+
+def interactive_plot_comparison(comps, labels=None, title=None):
+    """
+    Interactive plot for comparison results with a slider to select the x-value (iteration).
+    At each x, highlights and annotates the max value among all comparisons for each metric.
+    """
+    metrics = ['SSIM', 'PSNR', 'Main Diff']
+    num_metrics = 3
+    num_comparisons = len(comps)
+    if labels is None:
+        labels = [f'Comparison {i+1}' for i in range(num_comparisons)]
+
+    # Prepare y-data for each metric and comparison
+    y_data = []
+    min_len = min(len(comp[0]) if isinstance(comp[0], list) else len(comp[0]) for comp in comps)
+    for comp in comps:
+        comp_metrics = []
+        for i in range(num_metrics):
+            metric = comp[0][i] if isinstance(comp[0], list) else comp[i]
+            y = metric.values[:min_len]
+            comp_metrics.append(y)
+        y_data.append(comp_metrics)
+
+    x = np.arange(min_len)
+
+    # Create figure with 3 subplots
+    fig = make_subplots(
+        rows=1, 
+        cols=3, 
+        subplot_titles=metrics, 
+        horizontal_spacing=0.08,
+    )
+    fig.update_layout(width=1100, height=400)
+    colors = ['blue', 'green', 'orange', 'purple', 'brown', 'red', 'cyan', 'magenta']
+
+    # Add traces for each metric and comparison
+    for i in range(num_metrics):
+        for j in range(num_comparisons):
+            fig.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=y_data[j][i],
+                    mode='lines',
+                    name=labels[j],
+                    legendgroup=labels[j],
+                    showlegend=(i==0)
+                ),
+                row=1, col=i+1
+            )
+
+    # Add scatter for max points (to be updated)
+    max_scatters = []
+    for i in range(num_metrics):
+        scatter = go.Scatter(
+            x=[x[0]],
+            y=[max(y_data[j][i][0] for j in range(num_comparisons))],
+            mode='markers+text',
+            marker=dict(color='red', size=12, symbol='star'),
+            text=[''],
+            textposition='top center',
+            showlegend=False,
+            name='Max'
+        )
+        fig.add_trace(scatter, row=1, col=i+1)
+        max_scatters.append(scatter)
+
+    fig.update_layout(title=title, height=400, width=1100)
+
+    # Slider widget
+    slider = widgets.IntSlider(value=0, min=0, max=min_len-1, step=1, description='Iteration')
+
+    def update_plot(iter_idx):
+        for i in range(num_metrics):
+            # Find max value and which comparison at this x
+            vals = [y_data[j][i][iter_idx] for j in range(num_comparisons)]
+            max_val = np.max(vals)
+            max_idx = np.argmax(vals)
+            # Update scatter
+            fig.data[num_metrics*num_comparisons + i].x = [x[iter_idx]]
+            fig.data[num_metrics*num_comparisons + i].y = [max_val]
+            fig.data[num_metrics*num_comparisons + i].text = [f'{labels[max_idx]}<br>{max_val:.3f}']
+        fig.update_layout(title=f"{title or ''} (Iteration {iter_idx})")
+        fig.show()
+
+    def on_value_change(change):
+        update_plot(change['new'])
+
+    slider.observe(on_value_change, names='value')
+    display(slider)
+    update_plot(0)
+
+
+# --- Updated interactive_plot_comparison_enhanced function ---
+def interactive_plot_comparison_enhanced(comps, labels=None, title=None, metrics_names=None,
+                                         extreme_point_at_iteration=None):
+    """
+    Enhanced interactive plot for comparison results using Plotly and ipywidgets,
+    with consistent color mapping.
+    
+    Args:
+        comps (list): List of comparison results. Each item is a list of metric lists.
+                      e.g., [[ssim_list_1, psnr_list_1, ...], [ssim_list_2, psnr_list_2, ...], ...]
+        labels (list, optional): List of labels for each comparison. If None, default labels are used.
+        title (str, optional): Title for the whole plot.
+        metrics_names (list, optional): Custom names for the metrics.
+                                         Defaults to your original list.
+        extreme_point_at_iteration (int or None): The iteration at which to highlight an extreme point.
+            If None, uses the highest common iteration that is common in all comps.
+    """
+    num_comparisons = len(comps)
+    if num_comparisons == 0:
+        print("No comparison data provided.")
+        return
+
+    if labels is None:
+        labels = [f'Comp {i+1}' for i in range(num_comparisons)]
+    
+    # Generate the consistent color map for all labels
+    consistent_colors = generate_consistent_color_map(labels)
+
+    if metrics_names is None:
+        metrics_names = [
+            'SSIM (I, I*)', 'PSNR (I, I*)', 'L1 (I,I*)',
+            'SSIM (Φ, φ)', 'PSNR (Φ, φ)', 'L1 (Φ, φ)',
+            'SSIM (A, A*)', 'PSNR (A, A*)', 'L1 (A, A*)'
+        ]
+
+    num_metrics = len(metrics_names)
+    cols = 3
+    rows = int(np.ceil(num_metrics / cols))
+
+    min_len = min(len(comp[0]) for comp in comps) if comps else 0
+    if min_len == 0:
+        print("No data points for comparison. Skipping plot.")
+        return
+        
+    x_data = np.arange(min_len)
+
+    fig = go.FigureWidget(make_subplots(rows=rows, cols=cols,
+                                        subplot_titles=metrics_names,
+                                        shared_xaxes=True,
+                                        vertical_spacing=0.1, horizontal_spacing=0.05))
+
+    for i in range(num_metrics):
+        for j in range(num_comparisons):
+            current_y_data = comps[j][i]
+            # Robust conversion for y_data: handle scalars and lists of arrays
+            if isinstance(current_y_data, np.ndarray):
+                if current_y_data.ndim == 0:
+                    y_data = np.array([current_y_data.item()], dtype=float)
+                elif current_y_data.ndim == 1:
+                    y_data = current_y_data.astype(float)
+                else:
+                    y_data = current_y_data.flatten().astype(float)
+            elif isinstance(current_y_data, list):
+                if current_y_data and isinstance(current_y_data[0], np.ndarray):
+                    y_data = np.array([val.item() if isinstance(val, np.ndarray) else val for val in current_y_data], dtype=float)
+                else:
+                    y_data = np.array(current_y_data, dtype=float)
+            else:
+                y_data = np.array(current_y_data, dtype=float)
+            
+            if len(y_data) < min_len:
+                plot_x_data = x_data[:len(y_data)]
+                warnings.warn(f"Data for {labels[j]}, metric {metrics_names[i]} is shorter than min_len. Plotting truncated data.")
+            else:
+                plot_x_data = x_data
+
+            # Use the consistent color from the dictionary
+            trace_color = consistent_colors.get(labels[j], '#000000') # Default to black if label not found
+            
+            fig.add_trace(go.Scatter(
+                x=plot_x_data,
+                y=y_data[:len(plot_x_data)],
+                mode='lines',
+                name=labels[j],
+                line=dict(color=trace_color), # Set line color explicitly
+                showlegend=(i == 0), # Only show legend for the first row of subplots
+                hovertemplate=f"<b>{metrics_names[i]}</b><br>Iteration: %{{x}}<br>Value: %{{y:.4f}}<extra>{labels[j]}</extra>"
+            ), row=int(i/cols) + 1, col=(i % cols) + 1)
+
+        scatter_mode = 'markers'
+        marker_symbol = 'star'
+        marker_color = 'red' # Extreme point marker can be a consistent distinguishing color
+        marker_size = 10
+        
+        vals_at_iter0 = []
+        for k in range(num_comparisons):
+            metric_data = comps[k][i]
+            if isinstance(metric_data, (list, np.ndarray)) and len(metric_data) > 0:
+                val = metric_data[0].item() if isinstance(metric_data[0], np.ndarray) else metric_data[0]
+                vals_at_iter0.append(val)
+            else:
+                vals_at_iter0.append(np.nan)
+        
+        metric_lower = metrics_names[i].lower()
+        if any(key in metric_lower for key in ['ssim', 'psnr']):
+            extreme_val_iter0 = np.max(vals_at_iter0)
+            extreme_idx_iter0 = np.argmax(vals_at_iter0)
+            extreme_label_prefix = "Max"
+        else:
+            extreme_val_iter0 = np.min(vals_at_iter0)
+            extreme_idx_iter0 = np.argmin(vals_at_iter0)
+            extreme_label_prefix = "Min"
+
+        fig.add_trace(go.Scatter(
+            x=[x_data[0]],
+            y=[extreme_val_iter0],
+            mode=scatter_mode,
+            marker=dict(symbol=marker_symbol, size=marker_size, color=marker_color),
+            name=f'{extreme_label_prefix} ({labels[extreme_idx_iter0] if 0 <= extreme_idx_iter0 < len(labels) else "?"})',
+            hovertemplate=f"<b>Extreme Point</b><br>Iteration: %{{x}}<br>Value: %{{y:.4f}}<extra></extra>",
+            showlegend=False
+        ), row=int(i/cols) + 1, col=(i % cols) + 1)
+
+    # --- ONLY CHANGE IS HERE FOR LEGEND PLACEMENT ---
+    fig.update_layout(
+        title_text=title,
+        height=rows * 300,
+        showlegend=True,
+        legend=dict(
+            orientation="h",  # Horizontal legend
+            yanchor="top",
+            y=-0.1,           # Position below the plot area (negative value moves it down)
+            xanchor="center",
+            x=0.5,            # Center the legend horizontally
+            traceorder="normal"
+        )
+    )
+    # --- END OF ONLY CHANGE ---
+
+    fig.update_xaxes(title_text="Iteration")
+
+    initial_slider_value = extreme_point_at_iteration if extreme_point_at_iteration is not None and extreme_point_at_iteration < min_len else min_len - 1
+    slider = widgets.IntSlider(value=initial_slider_value,
+                               min=0, max=min_len-1, step=1, description='Iteration')
+
+    def update_plot(change):
+        iter_idx = change.new
+        with fig.batch_update():
+            for i in range(num_metrics):
+                extreme_trace_index_in_subplot = num_comparisons
+                trace_index_overall = i * (num_comparisons + 1) + extreme_trace_index_in_subplot
+
+                vals_at_iter = [
+                    (comps[j][i][iter_idx].item() if isinstance(comps[j][i][iter_idx], np.ndarray) else comps[j][i][iter_idx])
+                    for j in range(num_comparisons)
+                ]
+
+                metric_lower = metrics_names[i].lower()
+                if any(key in metric_lower for key in ['ssim', 'psnr']):
+                    extreme_val = np.max(vals_at_iter)
+                    extreme_idx_comp = np.argmax(vals_at_iter)
+                    extreme_label_prefix = "Max"
+                else:
+                    extreme_val = np.min(vals_at_iter)
+                    extreme_idx_comp = np.argmin(vals_at_iter)
+                    extreme_label_prefix = "Min"
+
+                fig.data[trace_index_overall].x = (x_data[iter_idx],)
+                fig.data[trace_index_overall].y = (extreme_val,)
+                label_name = labels[extreme_idx_comp] if 0 <= extreme_idx_comp < len(labels) else "?"
+                fig.data[trace_index_overall].name = f'{extreme_label_prefix} ({label_name})'
+                fig.data[trace_index_overall].hovertemplate = f"<b>{extreme_label_prefix} ({label_name})</b><br>Iteration: %{{x}}<br>Value: %{{y:.4f}}<extra></extra>"
+
+    slider.observe(update_plot, names='value')
+
+    display(widgets.VBox([fig, slider]))
+
+def plot(results, title=None, plot=True):
+    """
+    Plot the results of computed metrics.
+    
+    Args:
+        results: Dictionary with metric names as keys and their values as numpy arrays.
+        title: Optional title for the plot.
+        plot: If True, display the plot.
+        
+    Returns:
+        None
+    """
+    import matplotlib.pyplot as plt
+
+    if not isinstance(results, dict):
+        raise ValueError("Results must be a dictionary")
+    
+    fig, ax = plt.subplots()
+    for metric_name, values in results.items():
+        ax.plot(values, label=metric_name)
+    
+    if title:
+        ax.set_title(title)
+    ax.legend()
+    
+    if plot:
+        plt.show()
+
+def plot_correlation(corr_matrix, title=''):
+    """
+    Plot a heatmap for the given correlation matrix using seaborn.
+
+    Args:
+        corr_matrix (pd.DataFrame): Correlation matrix to plot.
+        title (str): Title for the heatmap.
+    """
+    import seaborn as sns
+    plt.figure(figsize=(6, 5))
+    sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt=".2f", linewidths=.5)
+    plt.title(title)
+    plt.show()
+
+def plotly_plot_with_heatmap(results, title=None, type = 'scatter', save_path = None):
+    """
+    Plot the results of computed metrics using Plotly with heatmap.
+    
+    Args:
+        results: Dictionary with metric names as keys and their values as numpy arrays.
+        title: Optional title for the plot.
+        
+    Returns:
+        None
+    """
+    import plotly.graph_objects as go
+    import numpy as np
+    
+    fig = go.Figure()
+    if type == 'heatmap':
+        # Ensure both lists have the same length
+        # Find the minimum length among all result arrays/series
+        min_len = min(len(np.asarray(results[key])) for key in results.keys())
+        # Truncate all arrays/series to min_len for alignment
+        for key in results.keys():
+            arr = np.asarray(results[key])
+            if len(arr) > min_len:
+                results[key] = arr[:min_len]
+            
+        # convert to pd.to_numeric if needed
+        df = pd.DataFrame(results)
+        # Convert all columns to numeric, coercing errors to NaN
+        df = df.apply(pd.to_numeric, errors='coerce')
+        # Create a heatmap
+        plot_correlation(df.corr(), title=title)
+        return
+    elif type == 'scatter':
+        for metric_name, values in results.items():
+            fig.add_trace(go.Scatter(
+                x=np.arange(len(values)),
+                y=values,
+                mode='lines+markers',
+                name=metric_name
+            ))
+    
+    else:
+        #both scatter and heatmap side by side using subplots
+        from plotly.subplots import make_subplots
+        fig = make_subplots(rows=1, cols=2, subplot_titles=('Metrics', 'Heatmap'))
+        for metric_name, values in results.items():
+            fig.add_trace(go.Scatter(
+                x=np.arange(len(values)),
+                y=values,
+                mode='lines',
+                name=metric_name
+            ), row=1, col=1)    
+        # Create a heatmap
+        df = pd.DataFrame(results)
+       #use sns instead of plotly for heatmap
+        corr_matrix = df.corr()
+        #show the values in the heatmap
+        corr_matrix = corr_matrix.round(2)  # Round to 2 decimal places for better readability
+      
+        fig.add_trace(go.Heatmap(
+            z=corr_matrix.values,
+            x=corr_matrix.columns,
+            y=corr_matrix.index,
+            colorscale='Viridis',
+            colorbar=dict(title='Correlation Coefficient'),
+            zmin=-1, zmax=1
+        ), row=1, col=2)
+    # Update layout
+    fig.update_layout(
+        title_text=title if title else 'Image Quality Metrics',
+        width=1000,
+        height=500,
+        showlegend=True,
+        template='plotly_white'
+    )  
+    if title:
+        fig.update_layout(title=title)
+    #adjust the legend position
+    fig.update_layout(legend=dict(x=0, y=1.2, orientation='h', xanchor='left', yanchor='bottom'))
+    # Show the figure
+    if type == 'scatter':
+        fig.update_layout(xaxis_title='Image Index', yaxis_title='Metric Value')
+    elif type == 'heatmap':
+        fig.update_layout(xaxis_title='Metrics', yaxis_title='Metrics')
+    else:
+        fig.update_layout(xaxis_title='Image Index', yaxis_title='Metric Value')
+    if save_path:
+        #save the figure to a file
+        fig.write_html(save_path)
+    else:
+        #show the figure
+        if 'plotly.io' in sys.modules:
+            import plotly.io as pio
+            pio.renderers.default = 'browser'
+        else:
+            import plotly.io as pio
+            pio.renderers.default = 'notebook'
+        #show the figure in the notebook
+        if 'plotly.offline' in sys.modules:
+            import plotly.offline as pyo
+            pyo.init_notebook_mode(connected=True)
+        #show the figure in the notebook
+        if 'plotly.offline' in sys.modules:
+            import plotly.offline as pyo
+            pyo.iplot(fig)
+        else:
+            #show the figure in the browser
+            pio.show(fig)
+
+
+

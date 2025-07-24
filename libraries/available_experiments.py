@@ -1,8 +1,8 @@
-from libraries.visualize import *
-from libraries.gauss_conv import *
-from libraries.fresnel_propagator import *
-from libraries.gan4inverse import *
-from libraries.info import *
+from visualize import *
+from gauss_conv import *
+from fresnel_propagator import *
+from gan4inverse import *
+from info import *
 
 from skimage.data import shepp_logan_phantom, astronaut, camera, horse
 from skimage.color import rgb2gray
@@ -70,7 +70,7 @@ def one_matrix(n, m, i, j, r=0, shape='rectangle', letter = 'A'):
 def multiple_one_matrices(p=10, n=128, m=128, r='any', shape='any', add_all = True, numbers = 1, letter = None, return_all = False):
     shapes = ['rectangle', 'circle', 'letters']
     if shape == 'letters' or shape == 'any':
-        letters_available = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'phase', 'attenuation', 'inverse', 'future']
+        letters_available = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']#, 'phase', 'attenuation', 'inverse', 'future']
         letters = [np.random.choice(letters_available) for _ in range(p)] if letter is None else [letter for _ in range(p)]
     else:
         letters = [letter for _ in range(p)]
@@ -139,6 +139,7 @@ def propagate_others(phase = None, attenuation = None, dsf = 1, abs_ratio = 1, f
         'horizontally': True if 'horizontally' not in kwargs.keys() else kwargs['horizontally'],
         'vertically': True if 'vertically' not in kwargs.keys() else kwargs['vertically'],
         'device': 'cuda:0' if 'device' not in kwargs.keys() else kwargs['device'],
+        'iter_num': 100 if 'iter_num' not in kwargs.keys() else kwargs['iter_num'],
     }
 
     simulation_sphere = join_dict(join_dict(kwargs, simulation_sphere), json_file)
@@ -151,11 +152,15 @@ def propagate_others(phase = None, attenuation = None, dsf = 1, abs_ratio = 1, f
             noise_factor = np.random.uniform(0, 0.2, 1).item()
             
         if noise_type == 'gaussian':
+            # print("Adding Gaussian noise with factor:", noise_factor)
             simulation_sphere['image'] = torch_noise_gaussian(prop.image, noise_factor)
         elif noise_type == 'poisson':
             simulation_sphere['image'] = torch_noise_poisson(prop.image, noise_factor, torch.Generator(device='cpu').manual_seed(seed))
         elif noise_type == 'speckle':
             simulation_sphere['image'] = torch_noise_speckle(prop.image, noise_factor)
+        elif noise_type == 'all':
+            simulation_sphere['image'] = torch_noise_gaussian(torch_noise_poisson(prop.image, noise_factor, torch.Generator(device='cpu').manual_seed(seed)), noise_factor)
+            
             
         noise_type = 'gaussian' if noise_type is None else noise_type
         simulation_sphere['noise_factor'] = noise_factor
@@ -354,33 +359,37 @@ class available_experiments():
             'ground_truth_path': ground_image_path,
         
         }
-        return join_dict(join_dict(kwargs, melting), setup_info, True)
+        return join_dict(join_dict(kwargs, melting), setup_info, False)
 
     def ivory(self, setup_info=setup_info, **kwargs):
+        image_paths = ['../data/ivory/test_data_nano1588_ivory_401_angle_dist_1.tif']#, '../data/ivory/test_data_nano1588_ivory_401_angle_dist_2.tif']
         ivory = {
             'experiment_name': 'nano1588_inline_holotomo_A001_Ivory_continiued',
-            'path': io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/ivory/test_data_nano1588_ivory_401_angle_dist_1.tif'),
+            'path': load_images_parallel(image_paths, 'mean', False), #('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/ivory/test_data_nano1588_ivory_401_angle_dist_1.tif'),
             'energy': energy_from_wavelength(0.1127).magnitude,
             'fresnel_number': 1.9485e-04,
             'dsf': 2**0,
             'abs_ratio': 0.000073,
             'name': 'ivory',
+            'image_path':image_paths
         }
-        ivory['path'] = ivory['path'][1800:3000, 1250:2600]
-        ivory['path'] = tensor_to_np(rotate(torch_reshape(ivory['path']), 180))
-        return join_dict(join_dict(kwargs, ivory), setup_info, True)
+        ivory['path'] = [ivory['path'][i][1800:3000, 1250:2600] for i in range(len(image_paths))]
+        ivory['path'] = [tensor_to_np(rotate(torch_reshape([ivory['path'][i]]), 180)) for i in range(len(image_paths))]
+        return join_dict(join_dict(kwargs, ivory), setup_info, False)
 
     def volcano(self, setup_info=setup_info, **kwargs):
+        image_path = '../data/volcano/test_data_nano3603_holo_4a_vulcano_crystal_2_20_angle.tiff'
         volcano = {
             'experiment_name': 'nano3603_holo_4a_vulcano_crystal_2',
-            'path': io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/volcano/test_data_nano3603_holo_4a_vulcano_crystal_2_20_angle.tiff'),
+            'path': io.imread(image_path),
             'energy': energy_from_wavelength(0.1127).magnitude,
             'fresnel_number': 1.2838e-04,
             'dsf': 2**0,
             'abs_ratio': 0.001,
             'name': 'volcano',
+            'image_path':image_path,
         }
-        return join_dict(join_dict(kwargs, volcano), setup_info, True)
+        return join_dict(join_dict(kwargs, volcano), setup_info, False)
 
     def volcano_julian(self, setup_info=setup_info, **kwargs):
         volcano_julian = {
@@ -392,22 +401,22 @@ class available_experiments():
             'abs_ratio': 0.001,
             'name': 'volcano',
         }
-        return join_dict(join_dict(kwargs, volcano_julian), setup_info, True)
+        return join_dict(join_dict(kwargs, volcano_julian), setup_info, False)
     
     def bubble(self, setup_info=setup_info, **kwargs):
         bubble = {
             'experiment_name': 'nano2807_bubble',
-            'path': io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/bubble/test_data_p2807_bubble_trId_1197456729.tif'),
+            'path': io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/bubble/test_data_p2807_bubble_trId_1197456729.tif')/1.1,
             'energy': energy_from_wavelength(0.0688).magnitude,
             'fresnel_number': 7.2383e-04,
             'dsf': 1,
             'abs_ratio': 0.001,
             'name': 'bubble',
         }
-        return join_dict(join_dict(kwargs, bubble), setup_info, True)
+        return join_dict(join_dict(kwargs, bubble), setup_info, False)
 
     def spider_hair(self, idx = [120], setup_info=setup_info, **kwargs):
-        image_path = 'data/ganrec/data_spider.tif'
+        image_path = '../data/spider/data_spider.tif'
         idx = [idx] if type(idx) is int else idx
         images = io.imread(image_path)
         if len(idx) >= 1:
@@ -423,10 +432,10 @@ class available_experiments():
             'abs_ratio': 0.05,
             'image_path': image_path,
         }
-        return join_dict(join_dict(kwargs,  spider_hair), setup_info, True)
+        return join_dict(join_dict(kwargs,  spider_hair), setup_info, False)
     
     def spider_hair_best(self, idx = [120], setup_info = setup_info, **kwargs):
-        image_path = 'data/ganrec/data_spider.tif'
+        image_path = '/data/hereon/wp/user/hailudaw/git_folders/sssmmmrrrlll/smrl/data/spider/data_spider.tif'
         idx = [idx] if type(idx) is int else idx
         images = io.imread(image_path)
         if len(idx) > 1:
@@ -443,7 +452,7 @@ class available_experiments():
         }
         return join_dict(join_dict(kwargs, spider_hair_best), setup_info)
 
-    def spider_big(self, setup_info = setup_info, **kwargs):
+    def spider_big(self, **kwargs):
         image_path = '/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/spider/test_data_nano3637_holotomo_step_R4B_highMag_100_angle.tiff'
         image = io.imread(image_path)
         spider_big = {
@@ -457,11 +466,12 @@ class available_experiments():
             'name': 'big_spider',
             'image_path': image_path,
         }
-        return join_dict(join_dict(kwargs, spider_big), setup_info, True)
+        return join_dict(kwargs, spider_big)
     
-    def spider_jdora(self, setup_info = setup_info, **kwargs):
+    def spider_jdora(self, **kwargs):
+        image = io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/spider_hair.tiff')/1.1
         spider_jdora = {
-            'path': io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/spider_hair.tiff'),
+            'image': image,
             'experiment_name': 'spider_jdora',
             'energy': 11.0,
             'pv': 6500.0,
@@ -471,9 +481,9 @@ class available_experiments():
             'name': 'spider_jdora',
         }
         spider_jdora['fresnel_number'] = get_fresnel_from_cone(**spider_jdora)
-        return join_dict(join_dict(kwargs, spider_jdora), setup_info)
+        return join_dict(kwargs, spider_jdora)
 
-    def sami_mouse_good(self, idx = [680], setup_info=setup_info, **kwargs):
+    def sami_mouse_good(self, idx = [680], **kwargs):
         # 'idx': [680],#[201, 234, 275, 326, 355, 388, 431, 482, 533, 584, 635, 680, 725, 776],
         sami_mouse_good = {
             'path': io.imread_collection('/asap3/petra3/gpfs/p05/2023/data/11017690/processed/nano111233_sf04_1p2p1_OV_JD/logs/nano111233_sf04_1p2p1_OV_reco_single/'+ '/*.tiff'),
@@ -484,7 +494,7 @@ class available_experiments():
             'z': 1.9191507469051687,
             'name': 'sami_mouse_good',
         }
-        return join_dict(join_dict(kwargs, sami_mouse_good), setup_info, False)
+        return join_dict(kwargs, sami_mouse_good)
     
     def sami_all(self, idx = [680], setup_info=setup_info, compartment = False, crop = False, row = None, col = None, pad_by = None, cut_x = None, cut_y = None,  **kwargs):
         raw_path = '/asap3/petra3/gpfs/p05/2023/data/11017690/raw/nano111233_sf04_1p2p1_OV'
@@ -506,7 +516,7 @@ class available_experiments():
             image = compartment_image(image, row, col, pad_by)
         sami_all = {
             'experiment_name': 'sami_mouse',
-            'path': image,
+            'image': image,
             'image_path': image_path,   
             'idx': idx,
             'energy_kev': 11.0,
@@ -523,7 +533,7 @@ class available_experiments():
             'wavelet': 'db4',
             'save_path': '/data/hereon/wp/user/hailudaw/new_data/',
         }
-        return join_dict(join_dict(kwargs, sami_all), setup_info, True)
+        return join_dict(join_dict(kwargs, sami_all), setup_info, False)
 
 
     def sami_best_distance(self, idx = [680], setup_info=setup_info, compartment = False, crop = False, row = None, col = None, pad_by = None, cut_x = None, cut_y = None,  **kwargs):
@@ -545,7 +555,7 @@ class available_experiments():
             images = [torch_reshape(images_com[i]) for i in range(len(images_com))]
         sami_best_distance = {
             'experiment_name': 'sami_mouse',
-            'path': images,
+            'image': images,
             'image_path': image_path,   
             'idx': idx,
             'energy_kev': 11.0,
@@ -562,35 +572,40 @@ class available_experiments():
             'wavelet': 'db4',
             'save_path': '/data/hereon/wp/user/hailudaw/new_data/',
         }
-        return join_dict(join_dict(kwargs, sami_best_distance), setup_info, True)
+        return join_dict(join_dict(kwargs, sami_best_distance), setup_info, False)
 
     def sami_farther(self, idx = [680], setup_info=setup_info, **kwargs):
+        images = io.imread_collection('/asap3/petra3/gpfs/p05/2023/data/11017690/processed/nano111233_sf04_1p2p1_OV_JD/logs/nano111233_sf04_1p2p1_OV_reco_single/'+ '/*.tiff')
         sami_farther = {
-            'path': io.imread_collection('/asap3/petra3/gpfs/p05/2023/data/11017690/processed/nano111233_sf04_1p2p1_OV_JD/logs/nano111233_sf04_1p2p1_OV_reco_single/'+ '/*.tiff') , 
+            'image': images, 
             'idx': idx,
             'experiment_name': 'sami_farther',
             'energy_kev': 11.0,
             'pv': 2.820144109415012e-06,
             'z': 1.95,
             'name': 'sami_farther',
+            'image_path':images.files,
         }
-        return join_dict(join_dict(kwargs, sami_farther), setup_info, True)
+        return join_dict(join_dict(kwargs, sami_farther), setup_info, False)
        
     def info_sami_spider(self, idx = [680], setup_info=setup_info, **kwargs):
+        images = io.imread_collection('/asap3/petra3/gpfs/p05/2023/data/11017690/processed/nano111233_sf04_1p2p1_OV_JD/logs/nano111233_sf04_1p2p1_OV_reco_single/'+ '/*.tiff')
         info_sami_spider = {
-            'path': io.imread_collection('/asap3/petra3/gpfs/p05/2023/data/11017690/processed/nano111233_sf04_1p2p1_OV_JD/logs/nano111233_sf04_1p2p1_OV_reco_single/'+ '/*.tiff') ,
+            'image': images,
             'idx': idx,
-            'experiment_name': 'sami_spider',
+            'iopy': 'sami_spider',
             'energy': 11.0,
             'pv': 9.193699824924853e-08,
             'z': 0.2769425256194748, #0.0010809961997837324,
             'dsf': 1,
+            'image_path':images.files,
         }
-        return join_dict(join_dict(kwargs, info_sami_spider), setup_info, True)
+        return join_dict(join_dict(kwargs, info_sami_spider), setup_info, False)
     
     def cactus_needles(self, setup_info=setup_info, **kwargs):
+        image_path = '/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/cactus_needle.tiff'
         cactus_needles = {
-            'path': io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/cactus_needle.tiff'),
+            'image': np.flip(np.transpose(io.imread(image_path))),
             'experiment_name': 'cactus_needles',
             'energy': 17.0,
             'pv': 6500,
@@ -598,21 +613,24 @@ class available_experiments():
             'z01': 285415625,
             'dsf': 2**0,
             'name': 'cactus_needles',
+            'image_path':image_path,
         }
         cactus_needles['fresnel_number'] = get_fresnel_from_cone(**cactus_needles)
         return join_dict(join_dict(kwargs, cactus_needles), setup_info)
     
     def jd_mg(self, setup_info=setup_info, **kwargs):
         # (energy=11.0, px_size=6500.0, z02=1.9661e10 )
+        image_path = '/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/magnesium_wire.tiff'
         mg = {
-            'path': io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/magnesium_wire.tiff'),
+            'image': np.transpose(io.imread(image_path))/1.1,
             'experiment_name': 'mg',
             'energy': 11.0,
             'pv': 6500.0,
             'z02': 1.9661e10,
-            'z01': 470515625,
+            'z01': 470515625,   
             'dsf': 2**0,
             'name': 'mg_wire',
+            'image_path':'/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/magnesium_wire.tiff',
         }
         mg['fresnel_number'] = get_fresnel_from_cone(**mg)
         return join_dict(join_dict(kwargs, mg), setup_info)
@@ -620,7 +638,7 @@ class available_experiments():
     def jd_spider_hair(self, setup_info=setup_info, **kwargs):
         # (energy=11.0,  px_size=6500.0, z02=19661.0*1e6 )
         spidy = {
-            'path': io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/spider_hair.tiff'),
+            'image': np.flip(np.transpose(io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/spider_hair.tiff')))/1.1,
             'experiment_name': 'spider_hair',
             'energy': 11.0,
             'pv': 6500.0,
@@ -634,7 +652,7 @@ class available_experiments():
     def jd_tooth(self, setup_info=setup_info, **kwargs):
         # (energy=17.0,  px_size=6500.0, z02=19652000000.0 )
         tooth = {
-            'path': io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/tooth.tiff'),
+            'image': np.flip(np.transpose(io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/tooth.tiff'))/1.1),
             'experiment_name': 'tooth',
             'energy': 17.0,
             'pv': 6500.0,
@@ -665,7 +683,7 @@ class available_experiments():
         fresnel_number = fresnel_calculator(energy_kev= energy, detector_pixel_size=pv, distance_sample_detector=z)
         print('fresnel_number', fresnel_number, 'distance_sample_detector', z, 'detector_pixel_size', pv)
         mg = propagate_others(tensor_to_np(phase), tensor_to_np(attenuation), fresnel_number=fresnel_number, abs_ratio= abs_ratio,  ground_transform_type='reshape', ground_atten_transform_type = 'reshape', transform_type = 'reshape', positive_phase = 'relu_inverted', positive_attenuation = 'gelu', mode = 'reflect',  value = 'median', dsf =2**0,  add_noise = False, noise_type = 'poisson', noise_factor = 0.2, cut = 3)
-        return join_dict(mg, setup_info, True)
+        return join_dict(mg, setup_info, False)
     
 
     def propagate_sphere(self, idx = 1,  dsf = 4, abs_ratio = 1, fresnel_number = 0.01, mode = 'reflect', value = 'min', transform_type = 'normalize', add_noise =False, noise_factor = 0.0036, no_of_noises = 5, folder = '/data/hereon/wp/user/jentscht/for_dawit/groundtruth/ratio_phase_attenuation_ratio_1e-2_double_sphere_30000_eV/ground_truth_projection/', file_type = 'tif', **kwargs):

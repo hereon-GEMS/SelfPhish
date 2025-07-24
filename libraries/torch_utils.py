@@ -1,10 +1,11 @@
-from libraries.setup import *
+from utils import *
 import torch
 from torchvision.transforms.functional import adjust_contrast, adjust_brightness, InterpolationMode, resize
 from torchvision.transforms import Resize
 # import torchvision.transforms.functional as F
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 def filter_values(image, min_value = None, max_value = None, replace = None, replace_value = None):
     #replace nan values with the min value
@@ -62,7 +63,8 @@ def torch_reshape(image, complex = False):
                 image = [image[i] for i in range(len(image))]
         image = torch.stack(image)
     if 'numpy' in str(type(image)):
-            image = torch.from_numpy(image)
+        image = image.copy()  # Ensure positive strides
+        image = torch.from_numpy(image)
     
     if len(image.shape) == 2:
         image = image.unsqueeze(0)
@@ -81,13 +83,12 @@ def torch_reshape(image, complex = False):
         image = image.type(torch.float32)
     return image
     
-
 def get_base_coeff(image):
     image = torch_reshape(image)
     _, _, shape_x, shape_y = image.shape
     freq_1 = torch.fft.fftfreq(shape_x)
     freq_2 = torch.fft.fftfreq(shape_y)
-    xi, eta = torch.meshgrid(freq_1, freq_2)
+    xi, eta = torch.meshgrid(freq_1, freq_2, indexing='ij')
     xi = xi.type(torch.float32)
     eta = eta.type(torch.float32)
     return torch.exp((xi**2 + eta**2)/2)
@@ -111,7 +112,8 @@ def torch_reshape(image, complex = False):
             image = image.astype(np.float32)
             image = torch.from_numpy(image)
     if 'numpy' in str(type(image)):
-            image = torch.from_numpy(image)
+        image = image.copy()  # Ensure positive strides
+        image = torch.from_numpy(image)
     
     if len(image.shape) == 2:
         image = image.unsqueeze(0).unsqueeze(0)
@@ -139,13 +141,6 @@ def torch_reshape(image, complex = False):
         image = image.permute(1, 0, 2, 3)
     return image 
 
-def torchh_nortomo(img):
-    img = torch_reshape(img)
-    mean_tmp = torch.mean(img)
-    std_tmp = torch.std(img)
-    img = (img - mean_tmp) / std_tmp
-    img = (img - torch.min(img)) / (torch.max(img) - torch.min(img))
-    return img
 
 def torch_norm(image):
     image = torch_reshape(image)
@@ -175,195 +170,38 @@ def torch_detector(image):
     image = torch.abs(image)**2
     return image
 
+def minmax_normalize(img,out='tensor', min_val=None, max_val=None):
+    img = pos_neg_image(img,'pos')
+    if min_val is None:
+        min_val = img.min()
+    if max_val is None:
+        max_val = img.max()
+    img = (img - min_val) / (max_val - min_val + 1e-8)
+    return img if out == 'tensor' else tensor_to_np(img)
+
+def minmax_normalize_pair(img1, img2):
+    min_val = min(img1.min(), img2.min())
+    max_val = max(img1.max(), img2.max())
+    img1 = (img1 - min_val) / (max_val - min_val + 1e-8)
+    img2 = (img2 - min_val) / (max_val - min_val + 1e-8)
+    return img1, img2
+
+def nor_tomo(img):
+    mean_tmp = np.mean(img)
+    std_tmp = np.std(img)
+    img = (img - mean_tmp) / (std_tmp)
+    img = (img - img.min()) / (img.max() - img.min())
+    return img
+
+def torch_nortomo(img,out='tensor'):
+    img = pos_neg_image(img,'pos')
+    mean_tmp = torch.mean(img)
+    std_tmp = torch.std(img)
+    img = (img - mean_tmp) / std_tmp
+    img = (img - torch.min(img)) / (torch.max(img) - torch.min(img))
+    return img if out == 'tensor' else tensor_to_np(img)
 
 
-def transform(image, transform_type = None, factor = None):
-    if transform_type is None:
-        transform_type = 'reshape'
-    if factor is None:
-        factor = 0.5
-    if transform_type == 'reshape':
-        image = torch_reshape(image)
-    elif transform_type == 'normalize':
-        image = torchnor_phase(image)
-    elif transform_type == 'normalize_1':
-        image = 1 - torchnor_phase(image)
-    elif transform_type == 'norm':
-        image = torch_norm(image)
-    elif transform_type == 'contrast':
-        image = torch_reshape(image)
-        image = torch_contrast(image, factor)
-    elif transform_type == 'contrast_normalize':
-        image = torch_reshape(image)
-        image = torch_contrast(image, factor)
-        image = torchnor_phase(image)
-    elif transform_type == 'contrast_norm':
-        image = torch_reshape(image)
-        image = torch_contrast(image, factor)
-        image = torch_norm(image)
-    elif transform_type == 'brightness':
-        image = torch_reshape(image)
-        image = torch_brightness(image, factor)
-    elif transform_type == 'brightness_normalize':
-        image = torch_reshape(image)
-        image = torch_brightness(image, factor)
-        image = torchnor_phase(image)
-    elif transform_type == 'brightness_norm':
-        image = torch_reshape(image)
-        image = torch_brightness(image, factor)
-        image = torch_norm(image)
-    elif transform_type == 'fourier':
-        image = torch_reshape(image)
-        image = torch.fft.fft2(image)
-    elif transform_type =='minmax':
-        image = torch_reshape(image)
-        image = (image - torch.min(image))/(torch.max(image) - torch.min(image))
-    elif transform_type == '0to1':
-        image = torch_reshape(image)
-        image = (image - torch.mean(image))/torch.std(image)
-        image = (image - torch.min(image))/(torch.max(image) - torch.min(image))
-    elif transform_type == 'log':
-        image = torch_reshape(image)
-        image = torch.log(image)
-    else:
-        image = torch_reshape(image)
-    return image
-
-def join_dict(dict2, base_dict, trans = False):
-    res = base_dict.copy()
-    res.update(dict2)
-    if trans:
-        res['image'] = torch_reshape(res['path'])
-        res['transformed_images'] = transform(res['path'], res['transform_type'], res['transform_factor'])
-    return res
-
-def similar_terms_converter(**kwargs):
-    similar_terms = [
-        ['path', 'images', 'image', 'paths','image', 'i_inputs', 'i_input', 'hologram', 'intensity'],
-        ['file_type', 'file_types', 'filetype', 'filetypes'],
-        ['idx', 'indices', 'index'],
-        ['energy', 'energy_kev'], 
-        ['lam', 'lamda', 'wavelength', 'wave_length'],
-        ['phase', 'phase_image'],
-        ['attenuation', 'attenuation_image'],
-        ['detector_pixel_size', 'pv'],
-        ['distance_sample_detector', 'z'],
-        ['fresnel_number', 'fresnel_number', 'fresnelnumbers', 'fresnelnumbers'],
-        ['fresnel_factor', 'ffs', 'frensel_factors', 'fresnelfactor'],
-        ['pad', 'pad_value', 'magnification_factor', 'upscale'],
-        ['downsampling_factor'],
-        ['mode', 'pad_mode'],
-        ['experiment_name'],
-        ['task', 'method'],
-        ['alpha', 'alpha_value'],
-        ['abs_ratio'],
-        ['delta_beta', 'delta_beta_value'],
-        ['shape_x', 'px'],
-        ['shape_y', 'py'],
-        ]
-    for i, terms in enumerate(similar_terms):
-        kwargs[terms[0]] = None if terms[0] not in kwargs.keys() else kwargs[terms[0]]
-        for term in terms:
-            if term in kwargs.keys()  and term != terms[0] and kwargs[term] is not None:
-                kwargs[terms[0]] = kwargs[term]
-                break
-    return kwargs
-    
-
-def prepare_dict(**kwargs):
-    similar_terms = [
-        ['path', 'images', 'image', 'paths','image', 'i_inputs', 'i_input', 'hologram', 'intensity'],
-        ['file_type', 'file_types', 'filetype', 'filetypes'],
-        ['idx', 'indices', 'index'],
-        ['energy', 'energy_kev'], 
-        ['lam', 'lamda', 'wavelength', 'wave_length'],
-        ['phase', 'phase_image'],
-        ['attenuation', 'attenuation_image'],
-        ['detector_pixel_size', 'pv'],
-        ['distance_sample_detector', 'z'],
-        ['fresnel_number', 'fresnel_number', 'fresnelnumbers', 'fresnelnumbers'],
-        ['fresnel_factor', 'ffs', 'frensel_factors', 'fresnelfactor'],
-        ['pad', 'pad_value', 'magnification_factor', 'upscale'],
-        ['downsampling_factor'],
-        ['mode', 'pad_mode'],
-        ['experiment_name'],
-        ['task', 'method'],
-        ['alpha', 'alpha_value'],
-        ['abs_ratio'],
-        ['delta_beta', 'delta_beta_value'],
-        ['shape_x', 'px'],
-        ['shape_y', 'py'],
-        ]
-
-    dictionary = {'image':None, 'path':None, 'image_path': None, 'pad': 1, 'mode': 'reflect', 'task': 'learn_phase', 'alpha': 1e-8, 'delta_beta': 1e1, 'idx': None, 'file_type': 'tif', 'save_path': os.getcwd() + '/results/', 'idx': 0, 'save': False, 'transform_factor': 0.7, 'transform_type': 'reshape', 'save_format': 'tif', 'save_all': False, 'downsampling_factor': 1, 'fresnel_number': None, 'detector_pixel_size': None, 'distance_sample_detector': None, 'energy': None, 'phase': None, 'attenuation': None}
-    optional_kwargs = {"fresnel_number": None, "distance_sample_detector": None, "detector_pixel_size": None, "energy": None, 'pad': 2, "transform_type": "reshape", "transform_factor": 1, "mode": "reflect", "value": "mean", "downsampling_factor": 1, "wave_field": None, 'fresnel_factor': None, 'device': 'cuda:0', 'cut':None, 'horizontally': True, 'vertically': True}
-    dictionary.update(optional_kwargs)
-    dictionary.update(kwargs)
-    kwargs = dictionary
-
-    for i, terms in enumerate(similar_terms):
-        kwargs[terms[0]] = None if terms[0] not in kwargs.keys() else kwargs[terms[0]]
-        for term in terms:
-            if term in kwargs.keys()  and term != terms[0] and kwargs[term] is not None:
-                kwargs[terms[0]] = kwargs[term]
-                break
-    
-    kwargs['downsampling_factor'] = 1 if 'downsampling_factor' not in kwargs.keys() else kwargs['downsampling_factor']
-
-    if kwargs['idx'] is not None:
-        kwargs['idx'] = [kwargs['idx']] if type(kwargs['idx']) is not list else kwargs['idx']
-
-    assert kwargs['path'] is not None or kwargs['phase'] is not None or kwargs['attenuation'] is not None, "path, phase or attenuation are not provided"
-    kwargs['image'], kwargs['image_path'] = get_image(kwargs['path'], kwargs['idx'], kwargs['file_type']) if kwargs['path'] is not None else kwargs['image'], kwargs['image_path']
-    
-    try:
-        kwargs['image'] = torch_reshape(kwargs['image']) if kwargs['image'] is not None else None
-    except:
-        try:
-            kwargs['image'] = torch_reshape(kwargs['image'][0]) if kwargs['image'] is not None else None
-        except:
-            kwargs['image'] = torch_reshape(kwargs['image'][0][0]) if kwargs['image'] is not None else None
-    if kwargs['image'] is not None and kwargs['phase'] is None and kwargs['attenuation'] is None:
-        kwargs['phase'] = kwargs['image']
-        kwargs['attenuation'] = kwargs['image']
-    else:
-        try:
-            kwargs['phase'], kwargs['phase_path'] = get_image(kwargs['phase'], kwargs['idx'], kwargs['file_type']) if kwargs['phase'] is not None else kwargs['phase'], kwargs['phase_path']
-        except:
-            try:
-                kwargs['phase'] = torch_reshape(kwargs['phase'])
-                kwargs['attenuation'] = torch_reshape(kwargs['attenuation'])
-            except:
-                pass
-
-
-    if kwargs['image'] is not None:
-        _, _, shape_x, shape_y = torch_reshape(kwargs['image']).shape
-        # kwargs['image'] = T.Resize((int(shape_x//kwargs['downsampling_factor']), int(shape_y//kwargs['downsampling_factor'])), antialias=True)(kwargs['image'])    
-        kwargs['image'] = resize_with_diff_interpolation(kwargs['image'], (int(shape_x/kwargs['downsampling_factor']), int(shape_y/kwargs['downsampling_factor'])), 'NEAREST_EXACT', 'tensor')
-        _, _, kwargs['shape_x'], kwargs['shape_y'] = kwargs['image'].shape if kwargs['image'] is not None else kwargs['phase'].shape
-        # print('after resize image shape', kwargs['image'].shape)
-    if kwargs['phase'] is not None:
-        _, _, shape_x, shape_y = kwargs['phase'].shape
-        # kwargs['phase'] = T.Resize((int(shape_x//kwargs['downsampling_factor']), int(shape_y//kwargs['downsampling_factor'])), antialias=True)(kwargs['phase'])
-        kwargs['phase'] = resize_with_diff_interpolation(kwargs['phase'], (int(shape_x/kwargs['downsampling_factor']), int(shape_y/kwargs['downsampling_factor'])), 'NEAREST_EXACT', 'tensor')
-    if kwargs['attenuation'] is not None:
-        _, _, shape_x, shape_y = kwargs['attenuation'].shape
-        kwargs['attenuation'] = resize_with_diff_interpolation(kwargs['attenuation'], (int(shape_x/kwargs['downsampling_factor']), int(shape_y/kwargs['downsampling_factor'])), 'NEAREST_EXACT', 'tensor')
-        # kwargs['attenuation'] = T.Resize((int(shape_x//kwargs['downsampling_factor']), int(shape_y//kwargs['downsampling_factor'])), antialias=True)(kwargs['attenuation'])
-
-    if kwargs['fresnel_number'] is not None:
-        kwargs['fresnel_number'] = kwargs['fresnel_number'] * kwargs['downsampling_factor']**2
-        # kwargs['fresnel_factor'] = ffactors(px = kwargs['shape_x'], py = kwargs['shape_y'], fresnel_number= kwargs['fresnel_number'])
-    if kwargs['detector_pixel_size'] is not None:
-        kwargs['detector_pixel_size'] = kwargs['detector_pixel_size'] * kwargs['downsampling_factor']
-    kwargs['downsampling_factor'] = 1
-
-    assert kwargs['phase'] is not None or kwargs['attenuation'] is not None, "phase or attenuation are not provided"
-    _, _, kwargs['shape_x'], kwargs['shape_y'] = kwargs['phase'].shape if kwargs['phase'] is not None else kwargs['attenuation'].shape
-    kwargs['shape'] = (kwargs['shape_x'], kwargs['shape_y'])
-    kwargs['full_shape'] = kwargs['phase'].shape if kwargs['phase'] is not None else kwargs['attenuation'].shape
-    return kwargs
 
 def tensor_to_np(tensor):
     if type(tensor) is not list:
@@ -401,12 +239,15 @@ def torch_zero_at_boundary(img, width=2):
     return img
 
 
-def torch_noise_gaussian(image, std, mean = 0):
+def torch_noise_gaussian(image, std, mean = 0, allow_neg = False):
     image = torch_reshape(image)
     std = torch.tensor(std)
     mean = torch.tensor(mean)
     noise = torch.normal(mean, std, image.shape).to(image.device)
-    return image + noise
+    noisy_image = image + noise
+    if not allow_neg:
+        noisy_image = torch.clamp_min(noisy_image, 0.0)
+    return noisy_image
 
 def torch_noise_poisson(image, rescale_factor = 0.00001, generator = None):
     if rescale_factor == 0:
@@ -436,7 +277,7 @@ def resize_pytorch(*, img, output_size):
     # inspect_img(img=img)
     return img
     
-def pos_neg_image(image, positive = None, reference_image = None, remove_extreme = False, retain_grad = False):
+def pos_neg_image(image, positive = None, reference_image = None, remove_extreme = False, retain_grad = False, output = 'tensor'):
     """ 
     This function will transform the image into positive and negative image
     [False, True, 'linear_normalization', 'non_linear_normalization', 'match_histograms', 'to0', 'to1', 'relu', 'relu_inverted', 'sigmoid', 'tanh', 'softmax', 'log_softmax', 'exp', 'log', 'log1p', 'expm1', 'softplus', 'softsign', 'hardshrink', 'tanhshrink', 'softshrink', 'threshold', 'relu6', 'elu', 'celu', 'selu', 'gelu', 'rrelu', 'hardtanh', 'leakyrelu', 'leaky_relu_inverted', 'normalize', 'normalize_min_max', 'normalize_min_max_1']
@@ -566,7 +407,7 @@ def pos_neg_image(image, positive = None, reference_image = None, remove_extreme
             image = torch.nn.functional.threshold(image, threshold=min, value=second_min, inplace=True)
     if retain_grad:
         image.retain_grad()
-    return image
+    return image if output != 'np' else tensor_to_np(image)
 
 def set_value(value, image = None):
     image = torch_reshape(image)
@@ -642,7 +483,7 @@ def unpad_torch(image, original_shape):
     range_m = m - m_old
     return image[:, :, range_m//2:range_m//2+m_old, range_n//2:range_n//2+n_old]
 
-def pad_multiple_times(im, N, pad_by = 2):
+def pad_multiple_times(im, N, pad_by = 2, mode = 'reflect', value_real = 0):
     shapes = []
     for i in range(N):
         im = torch_reshape(im)
@@ -651,6 +492,75 @@ def pad_multiple_times(im, N, pad_by = 2):
         # Fun.pad(wavefield.real, (int((shape_y*pad - shape_y)/2), int((shape_y *pad- shape_y)/2), int((shape_x *pad- shape_x)/2), int((shape_x *pad- shape_x)/2)), mode = mode, value = value_real)
         im = F.pad(im, (int((n*pad_by - n)/2), int((n *pad_by- n)/2), int((m *pad_by- m)/2), int((m *pad_by- m)/2),), mode = 'reflect')
     return im, shapes
+def pad_multiple_times(im, N, pad_by=2, mode='reflect', value='median', window_type= 'None'):
+    """
+    Exactly N rounds of pad_by× up‐sampling via F.pad(...), with full grads,
+    but never storing all intermediate pads simultaneously.
+
+    Returns:
+      padded: final (B,C,H0*(pad_by**N), W0*(pad_by**N)) tensor, with requires_grad=True
+      shapes: list of length N, where shapes[i] = (B,C,H_i,W_i) was the shape before the i-th pad.
+    """
+    if im.ndim < 4:
+        if im.ndim == 3:
+            im = im.unsqueeze(0)  # (C,H,W) → (1,C,H,W)
+        elif im.ndim == 2:
+            im = im.unsqueeze(0).unsqueeze(0)  # (H,W) → (1,1,H,W)
+        else:
+            raise ValueError(f"pad_multiple_times_ckpt: got {im.ndim}D tensor; expect 2–4D.")
+    B, C, H0, W0 = im.shape
+
+    shapes = []
+    pad_tuples = []
+    H_i, W_i = H0, W0
+    for i in range(N):
+        shapes.append((B, C, H_i, W_i))
+        H_next = H_i * pad_by
+        W_next = W_i * pad_by
+        pad_h = (H_next - H_i) // 2
+        pad_w = (W_next - W_i) // 2
+        pad_tuples.append((pad_w, pad_w, pad_h, pad_h))
+        H_i, W_i = H_next, W_next
+
+    # 4) Build a small list of “single‐round‐of‐pad” functions:
+    pad_funcs = []
+    for i, (pw_l, pw_r, ph_t, ph_b) in enumerate(pad_tuples):
+        if mode == 'constant':
+            def make_const_op(pad_tuple):
+                def _op(x):
+                    fill = set_value(value, x)  # your helper to pick a real‐valued fill
+                    return F.pad(x, pad_tuple, mode='constant', value=fill)
+                return _op
+            pad_funcs.append(make_const_op((pw_l, pw_r, ph_t, ph_b)))
+
+        elif mode == 'reflect':
+            def make_ref_op(pad_tuple):
+                def _op(x):
+                    return F.pad(x, pad_tuple, mode='reflect')
+                return _op
+            pad_funcs.append(make_ref_op((pw_l, pw_r, ph_t, ph_b)))
+
+        elif mode == 'mixed':
+            if i == 0:
+                def _first_ref(x, pad_tuple=(pw_l, pw_r, ph_t, ph_b)):
+                    return F.pad(x, pad_tuple, mode='reflect')
+                pad_funcs.append(_first_ref)
+            else:
+                def _const(x, pad_tuple=(pw_l, pw_r, ph_t, ph_b)):
+                    fill = set_value(value, x)
+                    return F.pad(x, pad_tuple, mode='constant', value=fill)
+                pad_funcs.append(_const)
+        else:
+            raise ValueError(f"[pad_multiple_times_ckpt] invalid mode: {mode}")
+
+    # 5) Now apply each pad under checkpoint: this never accumulates the autograd graph.
+    out = im
+    for fn in pad_funcs:
+        # checkpoint(fn, out) runs fn(out) in forward,
+        # drops activations, and re‐runs fn(out) in backward.
+        out = checkpoint(fn, out, use_reentrant=False)
+        # out = torch_apply_window(out, window_type=window_type)
+    return out, shapes
 
 def unpad_multiple_times(im, n, shapes):
     for i in range(n):
@@ -690,7 +600,6 @@ def crop_on_all_sides(image, cut_x = 200, cut_y = 200, left = True, right = True
         duplicate = duplicate[:, :, cut_shape[0]:cut_shape[1], cut_shape[2]:cut_shape[3]]         
     return duplicate
 
-
 def resize_with_diff_interpolation(img, size, interpolation = 'NEAREST_EXACT', out_type = 'np'):
     if type(img) is not torch.Tensor:
         img = torch_reshape(img)
@@ -729,7 +638,7 @@ def resize_with_adaptive_max_pool2d(img, new_size):
     return new_image
 
 def compare(img, new_size):
-    from libraries.visualize import visualize
+    from visualize import visualize
     import pandas as pd
     from IPython.display import display
     modes = ['NEAREST_EXACT', 'BILINEAR', 'Binning'] #'Max_pooling','BICUBIC', 'NEAREST', 
@@ -908,3 +817,254 @@ def join_compartments_torch(compartments, rows, cols, padded_by = 0, replace = F
                     j * compartment_width:(j + 1) * compartment_width] = unpadded_compartments[i * cols + j]
                 
     return image
+
+def median_filter_torch(input_tensor, kernel_size=3,output_tensor = False):
+    """
+    Applies a median filter to a 2D or 3D input tensor.
+
+    Parameters:
+        input_tensor (torch.Tensor): Input tensor of shape (H, W), (C, H, W), or (N, C, H, W)
+        kernel_size (int): Size of the filtering window.
+
+    Returns:
+        torch.Tensor: Median-filtered tensor.
+    """
+    input_tensor = torch_reshape(input_tensor)
+    # Padding
+    pad_size = kernel_size // 2
+    padded_input = F.pad(input_tensor, (pad_size, pad_size, pad_size, pad_size), mode='reflect')
+
+    # Unfold and compute median
+    unfolded = F.unfold(padded_input, kernel_size=(kernel_size, kernel_size))
+    unfolded = unfolded.permute(0, 2, 1)  # Shape: (N, H*W, kernel_size^2)
+    median_values, _ = unfolded.median(dim=2)
+
+    # Reshape back
+    output = median_values.view(input_tensor.shape)
+    return tensor_to_np(output) if output_tensor else output
+
+def tile_image(image, tile_size, overlap, output_num = None):
+    # image: torch.Tensor (N, C, H, W) or (N,output_num, H, W)
+    if isinstance(tile_size, int):
+        tile_h = tile_w = tile_size
+    else:
+        tile_h, tile_w = tile_size
+    if isinstance(overlap, int):
+        overlap_h = overlap_w = overlap
+    else:
+        overlap_h, overlap_w = overlap
+    N, C, H, W = image.shape
+    tiles, coords = [], []
+    for n in range(N):
+        for y in range(0, H, tile_h - overlap_h):
+            for x in range(0, W, tile_w - overlap_w):
+                y2, x2 = min(y + tile_h, H), min(x + tile_w, W)
+                tile = image[n:n+1, :, y:y2, x:x2]  # keep batch dim
+                pad_h, pad_w = tile_h - (y2 - y), tile_w - (x2 - x)
+                if pad_h > 0 or pad_w > 0:
+                    tile = torch.nn.functional.pad(tile, (0, pad_w, 0, pad_h))
+                tiles.append(tile)
+                coords.append((n, y, x))
+    if output_num:
+        return tiles, coords, (N, output_num, H, W)
+    else:
+        return tiles, coords, (N, C, H, W)
+
+def merge_tiles(tiles, coords, out_shape, tile_size, overlap):
+    N, C, H, W = out_shape
+    image = torch.zeros((N, C, H, W), dtype=tiles[0].dtype, device=tiles[0].device)
+    count = torch.zeros((N, C, H, W), dtype=tiles[0].dtype, device=tiles[0].device)
+    for tile, (n, y, x) in zip(tiles, coords):
+        tile_h, tile_w = tile.shape[-2:]
+        y2, x2 = min(y + tile_h, H), min(x + tile_w, W)
+        tile_crop = tile[:, :, :y2 - y, :x2 - x]
+        image[n:n+1, :, y:y2, x:x2] += tile_crop
+        count[n:n+1, :, y:y2, x:x2] += 1
+    image = image / count.clamp(min=1)
+    return image
+
+def transform(image, transform_type = None, factor = None):
+    if transform_type is None:
+        transform_type = 'reshape'
+    if factor is None:
+        factor = 0.5
+    if transform_type == 'reshape':
+        image = torch_reshape(image)
+    elif transform_type == 'normalize':
+        image = torchnor_phase(image)
+    elif transform_type == 'normalize_1':
+        image = 1 - torchnor_phase(image)
+    elif transform_type == 'norm':
+        image = torch_norm(image)
+    elif transform_type == 'contrast':
+        image = torch_reshape(image)
+        image = torch_contrast(image, factor)
+    elif transform_type == 'contrast_normalize':
+        image = torch_reshape(image)
+        image = torch_contrast(image, factor)
+        image = torchnor_phase(image)
+    elif transform_type == 'contrast_norm':
+        image = torch_reshape(image)
+        image = torch_contrast(image, factor)
+        image = torch_norm(image)
+    elif transform_type == 'brightness':
+        image = torch_reshape(image)
+        image = torch_brightness(image, factor)
+    elif transform_type == 'brightness_normalize':
+        image = torch_reshape(image)
+        image = torch_brightness(image, factor)
+        image = torchnor_phase(image)
+    elif transform_type == 'brightness_norm':
+        image = torch_reshape(image)
+        image = torch_brightness(image, factor)
+        image = torch_norm(image)
+    elif transform_type == 'fourier':
+        image = torch_reshape(image)
+        image = torch.fft.fft2(image)
+    elif transform_type =='minmax':
+        image = torch_reshape(image)
+        image = (image - torch.min(image))/(torch.max(image) - torch.min(image))
+    elif transform_type == '0to1':
+        image = torch_reshape(image)
+        image = (image - torch.mean(image))/torch.std(image)
+        image = (image - torch.min(image))/(torch.max(image) - torch.min(image))
+    elif transform_type == 'log':
+        image = torch_reshape(image)
+        image = torch.log(image)
+    else:
+        image = torch_reshape(image)
+    return image
+
+def prepare_dict(**kwargs):
+    """Use similar_terms to add the variable you are using synonym to the dictionary."""
+    similar_terms = [
+        ['path', 'images', 'image', 'paths','image', 'i_inputs', 'i_input', 'hologram', 'intensity'],
+        ['file_type', 'file_types', 'filetype', 'filetypes'],
+        ['idx', 'indices', 'index'],
+        ['energy', 'energy_kev'], 
+        ['lam', 'lamda', 'wavelength', 'wave_length'],
+        ['phase', 'phase_image'],
+        ['attenuation', 'attenuation_image'],
+        ['detector_pixel_size', 'pv'],
+        ['distance_sample_detector', 'z'],
+        ['fresnel_number', 'fresnel_number', 'fresnelnumbers', 'fresnelnumbers'],
+        ['fresnel_factor', 'ffs', 'frensel_factors', 'fresnelfactor'],
+        ['pad', 'pad_value', 'magnification_factor', 'upscale'],
+        ['dsf', 'downsampling_factor'],
+        ['mode', 'pad_mode'],
+        ['experiment_name'],
+        ['task', 'method'],
+        ['alpha', 'alpha_value'],
+        ['abs_ratio'],
+        ['delta_beta', 'delta_beta_value'],
+        ['shape_x', 'px'],
+        ['shape_y', 'py'],
+        ]
+
+    dictionary = {'image':None, 'path':None, 'image_path': None, 'pad': 1, 'mode': 'reflect', 'task': 'learn_phase', 'alpha': 1e-8, 'delta_beta': 1e1, 'idx': None, 'file_type': 'tif', 'save_path': os.getcwd() + '/results/', 'idx': 0, 'save': False, 'transform_factor': 0.7, 'transform_type': 'reshape', 'save_format': 'tif', 'save_all': False, 'dsf': 1, 'fresnel_number': None, 'detector_pixel_size': None, 'distance_sample_detector': None, 'energy': None, 'phase': None, 'attenuation': None}
+    optional_kwargs = {"fresnel_number": None, "distance_sample_detector": None, "detector_pixel_size": None, "energy": None, 'pad': 2, "transform_type": "reshape", "transform_factor": 1, "mode": "reflect", "value": "mean", "dsf": 1, "wave_field": None, 'fresnel_factor': None, 'device': 'cuda:0', 'cut':None, 'horizontally': True, 'vertically': True}
+    ratio = {'l1_ratio': 10, 'contrast_ratio': 0, 'normalized_ratio': 0, 'brightness_ratio': 0, 'reg_l1_ratio': 0, 'reg_l2_ratio': 0, 'contrast_normalize_ratio': 0, 'brightness_normalize_ratio': 0, 'l2_ratio': 0, 'fourier_ratio': 0, 'norm_ratio': 0, 'entropy_ratio': 1, 'real_loss_ratio': 1, 'fake_loss_ratio': 1}
+    dictionary.update(ratio)
+    dictionary.update(optional_kwargs)
+    dictionary.update(kwargs)
+    kwargs = dictionary
+    # kwargs = join_dict(kwargs, join_dict(optional_kwargs, dictionary))
+
+    for i, terms in enumerate(similar_terms):
+        kwargs[terms[0]] = None if terms[0] not in kwargs.keys() else kwargs[terms[0]]
+        for term in terms:
+            if term in kwargs.keys()  and term != terms[0] and kwargs[term] is not None:
+                kwargs[terms[0]] = kwargs[term]
+                break
+    
+    kwargs['dsf'] = 1 if 'dsf' not in kwargs.keys() else kwargs['dsf']
+
+    if kwargs['idx'] is not None:
+        kwargs['idx'] = [kwargs['idx']] if type(kwargs['idx']) is not list else kwargs['idx']
+
+    assert kwargs['path'] is not None or kwargs['phase'] is not None or kwargs['attenuation'] is not None, "path, phase or attenuation are not provided"
+    kwargs['image'], kwargs['image_path'] = get_image(kwargs['path'], kwargs['idx'], kwargs['file_type']) if kwargs['path'] is not None else kwargs['image'], kwargs['image_path']
+    
+    try:
+        kwargs['image'] = torch_reshape(kwargs['image']) if kwargs['image'] is not None else None
+    except:
+        try:
+            kwargs['image'] = torch_reshape(kwargs['image'][0]) if kwargs['image'] is not None else None
+        except:
+            kwargs['image'] = torch_reshape(kwargs['image'][0][0]) if kwargs['image'] is not None else None
+    if kwargs['image'] is not None and kwargs['phase'] is None and kwargs['attenuation'] is None:
+        kwargs['phase'] = kwargs['image']
+        kwargs['attenuation'] = kwargs['image']
+    else:
+        try:
+            kwargs['phase'], kwargs['phase_path'] = get_image(kwargs['phase'], kwargs['idx'], kwargs['file_type']) if kwargs['phase'] is not None else kwargs['phase'], kwargs['phase_path']
+        except:
+            try:
+                kwargs['phase'] = torch_reshape(kwargs['phase'])
+                kwargs['attenuation'] = torch_reshape(kwargs['attenuation'])
+            except:
+                pass
+
+
+    if kwargs['image'] is not None:
+        _, _, shape_x, shape_y = torch_reshape(kwargs['image']).shape
+        # kwargs['image'] = T.Resize((int(shape_x//kwargs['dsf']), int(shape_y//kwargs['dsf'])), antialias=True)(kwargs['image'])    
+        kwargs['image'] = resize_with_diff_interpolation(kwargs['image'], (int(shape_x/kwargs['dsf']), int(shape_y/kwargs['dsf'])), 'NEAREST_EXACT', 'tensor')
+        _, _, kwargs['shape_x'], kwargs['shape_y'] = kwargs['image'].shape if kwargs['image'] is not None else kwargs['phase'].shape
+        # print('after resize image shape', kwargs['image'].shape)
+    if kwargs['phase'] is not None:
+        _, _, shape_x, shape_y = kwargs['phase'].shape
+        # kwargs['phase'] = T.Resize((int(shape_x//kwargs['dsf']), int(shape_y//kwargs['dsf'])), antialias=True)(kwargs['phase'])
+        kwargs['phase'] = resize_with_diff_interpolation(kwargs['phase'], (int(shape_x/kwargs['dsf']), int(shape_y/kwargs['dsf'])), 'NEAREST_EXACT', 'tensor')
+    if kwargs['attenuation'] is not None:
+        _, _, shape_x, shape_y = kwargs['attenuation'].shape
+        kwargs['attenuation'] = resize_with_diff_interpolation(kwargs['attenuation'], (int(shape_x/kwargs['dsf']), int(shape_y/kwargs['dsf'])), 'NEAREST_EXACT', 'tensor')
+        # kwargs['attenuation'] = T.Resize((int(shape_x//kwargs['dsf']), int(shape_y//kwargs['dsf'])), antialias=True)(kwargs['attenuation'])
+
+    if kwargs['fresnel_number'] is not None:
+        kwargs['fresnel_number'] = kwargs['fresnel_number'] * kwargs['dsf']**2
+        # kwargs['fresnel_factor'] = ffactors(px = kwargs['shape_x'], py = kwargs['shape_y'], fresnel_number= kwargs['fresnel_number'])
+    if kwargs['detector_pixel_size'] is not None:
+        kwargs['detector_pixel_size'] = kwargs['detector_pixel_size'] * kwargs['dsf']
+    kwargs['dsf'] = 1
+
+    assert kwargs['phase'] is not None or kwargs['attenuation'] is not None, "phase or attenuation are not provided"
+    _, _, kwargs['shape_x'], kwargs['shape_y'] = kwargs['phase'].shape if kwargs['phase'] is not None else kwargs['attenuation'].shape
+    kwargs['shape'] = (kwargs['shape_x'], kwargs['shape_y'])
+    kwargs['full_shape'] = kwargs['phase'].shape if kwargs['phase'] is not None else kwargs['attenuation'].shape
+    kwargs['abs_ratio'] = np.abs(kwargs['abs_ratio']) if type(kwargs['abs_ratio']) != list else [np.abs(ab) for ab in kwargs['abs_ratio']]
+    return kwargs
+
+
+def similar_terms_converter(**kwargs):
+    similar_terms = [
+        ['path', 'images', 'image', 'paths','image', 'i_inputs', 'i_input', 'hologram', 'intensity'],
+        ['file_type', 'file_types', 'filetype', 'filetypes'],
+        ['idx', 'indices', 'index'],
+        ['energy', 'energy_kev'], 
+        ['lam', 'lamda', 'wavelength', 'wave_length'],
+        ['phase', 'phase_image'],
+        ['attenuation', 'attenuation_image'],
+        ['detector_pixel_size', 'pv'],
+        ['distance_sample_detector', 'z'],
+        ['fresnel_number', 'fresnel_number', 'fresnelnumbers', 'fresnelnumbers'],
+        ['fresnel_factor', 'ffs', 'frensel_factors', 'fresnelfactor'],
+        ['pad', 'pad_value', 'magnification_factor', 'upscale'],
+        ['dsf'],
+        ['mode', 'pad_mode'],
+        ['experiment_name'],
+        ['task', 'method'],
+        ['alpha', 'alpha_value'],
+        ['abs_ratio'],
+        ['delta_beta', 'delta_beta_value'],
+        ['shape_x', 'px'],
+        ['shape_y', 'py'],
+        ]
+    for i, terms in enumerate(similar_terms):
+        kwargs[terms[0]] = None if terms[0] not in kwargs.keys() else kwargs[terms[0]]
+        for term in terms:
+            if term in kwargs.keys()  and term != terms[0] and kwargs[term] is not None:
+                kwargs[terms[0]] = kwargs[term]
+                break
+    return kwargs
+

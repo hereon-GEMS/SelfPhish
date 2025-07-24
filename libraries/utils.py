@@ -4,19 +4,30 @@ import math
 import time
 import random
 import shutil
+import logging
 import numpy as np
-import pandas as pd
+import pandas as pdf
+from info import *
 from PIL import Image
+import pandas as pd
 from typing import Any
 import skimage.io as io
 from math import pi as pi
 import concurrent.futures
+from tqdm import tqdm as tq
 import matplotlib.image as mpimg
 from scipy.fftpack import fftfreq
 from contextlib import redirect_stdout
 from joblib import Parallel, delayed
 from typing import Dict, Any, List, Tuple, Union, Optional
 
+def join_dict(dict2, base_dict, trans = False):
+    res = base_dict.copy()
+    res.update(dict2)
+    return res
+
+vis_kwargs = all_config['visualization']
+setup_info = join_dict(all_config['ml'],all_config['run'])
 
 def create_or_replace_folder(folder_path: str):
     """Create a new folder, replacing it if it already exists."""
@@ -59,12 +70,12 @@ def load_images_parallel(urls = [], divide_by = None, output_tensor = False):
         images = list(results)
     return images
 
-def load_images_parallel(urls, divide_by=None, output_tensor=False):
-    # Use all available CPUs for parallel loading
-    with concurrent.futures.ProcessPoolExecutor(max_workers=90) as executor:
-        futures = [executor.submit(load_image, url, divide_by, output_tensor) for url in urls]
-        images = [future.result() for future in concurrent.futures.as_completed(futures)]
-    return images
+# def load_images_parallel(urls, divide_by=None, output_tensor=False):
+#     # Use all available CPUs for parallel loading
+#     with concurrent.futures.ProcessPoolExecutor(max_workers=90) as executor:
+#         futures = [executor.submit(load_image, url, divide_by, output_tensor) for url in urls]
+#         images = [future.result() for future in concurrent.futures.as_completed(futures)]
+#     return images
 
 def get_image(path, idx = None, file_type=None):
     if file_type is None:
@@ -100,7 +111,7 @@ def get_image(path, idx = None, file_type=None):
             if len(path.shape) == 2:
                 image = path
             elif len(path.shape) == 3:
-                image = path[idx,:,:] if idx is not None else path
+                image = path if idx is None or idx[0] is None else path[idx,:,:]
             else:
                 # print('path shape', path, 'idx', idx)
                 image = path#[idx,:,:,:] if idx is not None else path
@@ -132,117 +143,15 @@ def get_image(path, idx = None, file_type=None):
             image_path.append(image_path_)
     return image, image_path
 
-# import torch
-# def get_image(
-#     path: Union[str, List[str], np.ndarray, io.ImageCollection, torch.Tensor],
-#     idx: Optional[Union[int, List[int]]] = None,
-#     file_type: Optional[str] = 'tif'
-# ) -> Tuple[List[np.ndarray], Optional[List[str]]]:
-#     """
-#     Load images from various sources: directories, files, numpy arrays, PyTorch tensors, or collections.
-
-#     Parameters:
-#         path (Union[str, List[str], np.ndarray, io.ImageCollection, torch.Tensor]): 
-#             Path to the image(s), a numpy array, tensor, or a collection.
-#         idx (Optional[Union[int, List[int]]]): 
-#             Index or indices of specific images to load.
-#         file_type (Optional[str]): 
-#             File type to filter (default is 'tif') when loading from directories.
-
-#     Returns:
-#         Tuple[List[np.ndarray], Optional[List[str]]]: 
-#             A list of loaded images and their corresponding file paths (if applicable).
-#     """
-#     if isinstance(path, str):
-#         if os.path.isdir(path):
-#             return _load_images_from_directory(path, idx, file_type)
-#         elif os.path.isfile(path):
-#             return _load_image_from_file(path, idx)
-#         else:
-#             raise ValueError(f"Invalid path: {path}")
-    
-#     if isinstance(path, (list, tuple)):
-#         return _load_images_from_multiple_paths(path, idx, file_type)
-    
-#     if isinstance(path, np.ndarray):
-#         return _load_images_from_array(path, idx)
-    
-#     if isinstance(path, torch.Tensor):
-#         return _load_images_from_tensor(path, idx)
-    
-#     if isinstance(path, io.ImageCollection):
-#         return _load_images_from_collection(path, idx)
-    
-#     raise TypeError(f"Unsupported type for path: {type(path)}")
-
-# def _load_images_from_directory(
-#     directory: str, idx: Optional[Union[int, List[int]]], file_type: str
-# ) -> Tuple[List[np.ndarray], List[str]]:
-#     """Load images from a directory, optionally selecting specific indices."""
-#     image_files = sorted(io.imread_collection(f'{directory}/*.{file_type}').files)
-#     if idx is not None:
-#         image_files = [image_files[i] for i in idx] if isinstance(idx, list) else [image_files[idx]]
-#     return _load_images_parallel(image_files), image_files
-
-# def _load_image_from_file(file_path: str, idx: Optional[Union[int, List[int]]] = None) -> Tuple[List[np.ndarray], Optional[List[str]]]:
-#     """Load a single image from a file or an array from npz/npy files."""
-#     ext = os.path.splitext(file_path)[-1].lower()
-#     if ext in ['.npy', '.npz']:
-#         return _load_from_numpy_file(file_path, idx)
-    
-#     try:
-#         image = io.imread(file_path).astype('float32')
-#         if idx is not None:
-#             image = _slice_data(image, idx)
-#         return [image], [file_path]
-#     except Exception as e:
-#         raise ValueError(f"Error loading image from {file_path}: {e}")
-
-# def _load_from_numpy_file(file_path: str, idx: Optional[Union[int, List[int]]]) -> Tuple[List[np.ndarray], None]:
-#     """Load arrays from .npy or .npz files."""
-#     try:
-#         if file_path.endswith('.npy'):
-#             data = np.load(file_path).astype('float32')
-#         elif file_path.endswith('.npz'):
-#             data = np.load(file_path)['arr_0'].astype('float32')
-#         else:
-#             raise ValueError(f"Unsupported numpy file format: {file_path}")
-#         if idx is not None:
-#             data = _slice_data(data, idx)
-#         return [data], None
-#     except Exception as e:
-#         raise ValueError(f"Error loading numpy file from {file_path}: {e}")
-
-# def _load_images_from_multiple_paths(
-#     paths: List[str], idx: Optional[Union[int, List[int]]], file_type: str
-# ) -> Tuple[List[np.ndarray], List[Optional[str]]]:
-#     """Load images from a list of paths."""
-#     images, image_paths = [], []
-#     for p in paths:
-#         imgs, img_paths = get_image(p, idx, file_type)
-#         images.extend(imgs)
-#         image_paths.extend(img_paths)
-#     return images, image_paths
-
-# def _load_images_from_array(array: np.ndarray, idx: Optional[Union[int, List[int]]]) -> Tuple[List[np.ndarray], None]:
-#     """Load images from a numpy array, optionally slicing by index."""
-#     if idx is not None:
-#         array = _slice_data(array, idx)
-#     return [array], None
-
-# def _load_images_from_tensor(tensor: torch.Tensor, idx: Optional[Union[int, List[int]]]) -> Tuple[List[np.ndarray], None]:
-#     """Load images from a PyTorch tensor, optionally slicing by index."""
-#     array = tensor.numpy()
-#     return _load_images_from_array(array, idx)
-
-# def _load_images_from_collection(
-#     collection: io.ImageCollection, idx: Optional[Union[int, List[int]]]
-# ) -> Tuple[List[np.ndarray], List[str]]:
-#     """Load images from a skimage ImageCollection, optionally selecting specific indices."""
-#     files = collection.files
-#     if idx is not None:
-#         files = [files[i] for i in idx] if isinstance(idx, list) else [files[idx]]
-#     return _load_images_parallel(files), files
+def exponential_variable_generator(max, min, n, dtype = 'int'):
+    vars = np.random.exponential(max, n)
+    vars = vars/np.max(vars)*max
+    vars = [int(r) for r in vars] if dtype == 'int' else vars
+    # min
+    vars = [r if r > min else min for r in vars]
+    vars = list(set(vars))
+    vars.sort(reverse=True)
+    return vars, len(vars)
 
 def _slice_data(data: np.ndarray, idx: Union[int, List[int]]) -> np.ndarray:
     """Slice data based on the provided index."""
@@ -318,7 +227,7 @@ def get_setup_info(dict = {}):
 
 def get_file_nem(dict):
     name = ''
-    important_keys = ['experiment_name', 'abs_ratio', 'iter_num', 'downsampling_factor', 'l1_ratio', 'contrast_ratio', 'normalized_ratio', 'brightness_ratio', 'contrast_normalize_ratio', 'brightness_normalize_ratio', 'l2_ratio', 'fourier_ratio']
+    important_keys = ['experiment_name', 'abs_ratio', 'iter_num', 'dsf', 'l1_ratio', 'contrast_ratio', 'normalized_ratio', 'brightness_ratio', 'contrast_normalize_ratio', 'brightness_normalize_ratio', 'l2_ratio', 'fourier_ratio']
     for key in important_keys:
         if key in dict.keys():
             name += key + '_' + str(dict[key]) + '__'
@@ -591,7 +500,6 @@ def filter_values(image, min_value = None, max_value = None, replace = None, rep
         image[image == replace] = replace_value
     return image
 
-
 def filterout_artifacts(image, use_median = True, use_gaussian = False, kernel_size = 3, min_threshold = 99.999, max_threshold = 0.001):
     """
     This function filters out the artifacts in the image by using the ratio of the original image and the filtered image.
@@ -607,8 +515,8 @@ def filterout_artifacts(image, use_median = True, use_gaussian = False, kernel_s
     from skimage.filters import median, gaussian, threshold_mean
     from skimage.morphology import disk
     if use_median:
-        im = median(image, disk(3))
-    if use_gaussian:
+        im = median(image, disk(kernel_size))
+    elif use_gaussian:
         im = gaussian(image, sigma=kernel_size) if not use_median else gaussian(im, sigma=kernel_size)
     else:
         im = image
@@ -621,10 +529,10 @@ def filterout_artifacts(image, use_median = True, use_gaussian = False, kernel_s
     image2 = image.copy()
     image2[div > min_threshold] = np.median(image)
     image2[div < max_threshold] = np.median(image)
-    # visualize([image, im, div, image2], title = ['original', 'filtered', 'ratio'], cmap = 'gray', images_per_row = 2, show_or_plot = 'plot', zoomout_location = 'top right', axis = 'off', colorbar = True, colorbar_location = 'bottom', axin_axis = False, fontsize = 34, label_size = 30, min_max = True, height = 0.11, width = 0.11, position = 'custom', move_h = 0.25, move_v = 0.05)
+    # visualize([image, im, div, image2], title = ['original', 'filtered', 'ratio', 'final'], cmap = 'gray', images_per_row = 4, show_or_plot = 'plot', zoomout_location = 'top right', axis = 'off', colorbar = True, colorbar_location = 'bottom', axin_axis = False, fontsize = 34, label_size = 30, min_max = True, height = 0.11, width = 0.11, position = 'custom', move_h = 0.25, move_v = 0.05)
     return image2
 
-def generate_qr_code(text, file_path='data/qr/qr_code.tif', version = 1, box_size=8, border=2):
+def generate_qr_code(text, file_path='data/qr/qr_code.tif', v = 1, box_size=18, border=2):
     """
     Generates a QR code for the given text and saves it as an image.
 
@@ -637,11 +545,9 @@ def generate_qr_code(text, file_path='data/qr/qr_code.tif', version = 1, box_siz
     img: The QR code image.
     """
     import qrcode
-    
-        
     # Create a QR code instance
     qr = qrcode.QRCode(
-        version=version,  # controls the size of the QR code
+        version=v,  # controls the size of the QR code
         error_correction=qrcode.constants.ERROR_CORRECT_L,
         box_size=box_size,
         border=border,
@@ -654,8 +560,285 @@ def generate_qr_code(text, file_path='data/qr/qr_code.tif', version = 1, box_siz
     # Create an image of the QR code
     img = qr.make_image(fill='black', back_color='white')
     if file_path is not None:
-        if not os.path.exists(os.path.dirname(file_path)):
-            os.makedirs(os.path.dirname(file_path))    
         img.save(file_path)
         print(f"QR code saved as {file_path}")
-    return np.array(img)
+    img = np.array(img)
+    return img
+
+import numpy as np
+from skimage.metrics import structural_similarity as ssim_metric
+from skimage.metrics import peak_signal_noise_ratio as psnr_metric
+
+def calculate_error_metrics(actual_values, predicted_values, metric='mse', give='map', data_range=None, channel_axis=None):
+    """
+    Calculates various error metrics (MSE, NMSE, RMSE, MAE, SSIM, PSNR) between actual and predicted values.
+    Optionally returns a per-pixel error map or similarity map instead of a single scalar value.
+
+    Args:
+        actual_values (list or np.array): A list or NumPy array of the true/observed values.
+                                          For 'ssim' and 'psnr', this should typically be a 2D or 3D image array.
+        predicted_values (list or np.array): A list or NumPy array of the predicted values.
+                                            For 'ssim' and 'psnr', this should typically be a 2D or 3D image array.
+        metric (str, optional): The error/similarity metric to calculate.
+                                Must be one of 'mse', 'nmse', 'rmse', 'mae', 'ssim', 'psnr'.
+                                Defaults to 'mse'.
+        return_map (bool, optional): If True:
+                                     - For 'mse', 'rmse', 'mae': Returns the per-pixel squared/absolute error map.
+                                     - For 'ssim': Returns the structural similarity map.
+                                     - For 'psnr': This option is ignored, and the scalar PSNR is always returned.
+                                     If False (default): Returns the scalar aggregated metric.
+        data_range (float, optional): The dynamic range of the image data (e.g., 255 for 8-bit images, 1.0 for normalized floats).
+                                      Required for 'psnr' calculation. If not provided for 'psnr', it will be inferred from the data type.
+        channel_axis (int or None, optional): For 'ssim', specifies the axis of the color channels (e.g., -1 for (H, W, C)).
+                                              Set to None for grayscale images.
+
+    Returns:
+        float or np.array: The calculated metric value (float) or the per-pixel
+                           map (np.array), depending on `metric` and `return_map`.
+
+    Raises:
+        ValueError: If inputs have different lengths/shapes, unsupported metric,
+                    zero variance for NMSE, or invalid data dimensions for SSIM/PSNR.
+        TypeError: If input values are not numeric.
+    """
+    # Convert inputs to NumPy arrays for efficient numerical operations
+    try:
+        actual_values = np.array(actual_values, dtype=float)
+        predicted_values = np.array(predicted_values, dtype=float)
+    except ValueError:
+        raise TypeError("Input values must be numeric.")
+
+    # Validate input shapes
+    if actual_values.shape != predicted_values.shape:
+        raise ValueError("Actual and predicted values must have the same shape.")
+    if actual_values.size == 0: # Use .size for total number of elements
+        # If no data points, error is 0 (scalar) or empty array (map)
+        return 0.0 if not return_map else np.array([])
+
+    # Calculate squared differences (common for MSE, RMSE, NMSE)
+    squared_differences = (actual_values - predicted_values)**2
+
+    # Calculate absolute differences (for MAE)
+    absolute_differences = np.abs(actual_values - predicted_values)
+
+    # --- Calculate the requested metric ---
+    metric_lower = metric.lower()
+
+    if metric_lower == 'mse':
+        if give == 'map':
+            return squared_differences
+        elif give == 'score':
+            mse = np.mean(squared_differences)
+            return mse
+        else:
+            return squared_differences,np.mean(squared_differences)
+    elif metric_lower == 'rmse':
+        if give == 'map':
+            return squared_differences
+        elif give == 'score':
+            mse = np.mean(squared_differences)
+            rmse = np.sqrt(mse)
+            return rmse
+        else:
+            return squared_differences,np.mean(squared_differences)
+    elif metric_lower == 'nmse':
+        variance_actual = np.var(actual_values) # Population variance (n-denominator)
+
+        if variance_actual == 0:
+            if np.mean(squared_differences) == 0: # If MSE is also 0
+                if give == 'score':
+                    return 0.0
+                elif give == 'map':
+                    return np.zeros_like(actual_values)
+                else:
+                    return np.zeros_like(actual_values), 0.0 # Perfect prediction
+            else:
+                raise ValueError("Cannot calculate NMSE: Variance of actual values is zero, "
+                                 "and there are prediction errors. Division by zero.")
+
+        if give == 'map':
+            return squared_differences / variance_actual
+        elif give == 'score':
+            mse = np.mean(squared_differences)
+            nmse = mse / variance_actual
+            return nmse
+        else:
+            mse = np.mean(squared_differences)
+            nmse = mse / variance_actual
+            return squared_differences / variance_actual, nmse
+            
+    elif metric_lower == 'mae':
+        if give == 'map':
+            return absolute_differences
+        elif give == 'score':
+            mae = np.mean(absolute_differences)
+            return mae
+        else:
+            mae = np.mean(absolute_differences)
+            return absolute_differences, mae
+    elif metric_lower == 'ssim':
+        # SSIM requires 2D or higher dimensional arrays
+        if actual_values.ndim < 2 or predicted_values.ndim < 2:
+            raise ValueError("SSIM requires 2D or higher dimensional image data.")
+
+        # structural_similarity can return a map if full=True
+        score, ssim_map = ssim_metric(actual_values, predicted_values, data_range=data_range,
+                                      channel_axis=channel_axis, full=True)
+        if give == 'map':
+            return ssim_map
+        elif give == 'score':
+            return score
+        else:
+            return ssim_map, score
+    elif metric_lower == 'psnr':
+        # PSNR requires 2D or higher dimensional arrays
+        if actual_values.ndim < 2 or predicted_values.ndim < 2:
+            raise ValueError("PSNR requires 2D or higher dimensional image data.")
+
+        # PSNR is a scalar metric, 'return_map' is not applicable here.
+        if give == 'map':
+            print("Warning: 'return_map' is not applicable for PSNR. Returning scalar PSNR value.")
+
+        score = psnr_metric(actual_values, predicted_values, data_range=data_range)
+        return score
+    else:
+        raise ValueError(f"Unsupported metric: '{metric}'. Choose from 'mse', 'nmse', 'rmse', 'mae', 'ssim', 'psnr'.")
+
+def generate_fresnel_sequence(min_val, max_val, num=10, scale='log'):
+    if scale == 'log':
+        return np.geomspace(min_val, max_val, num)
+    elif scale == 'linear':
+        return np.linspace(min_val, max_val, num)
+    else:
+        raise ValueError("scale must be 'linear' or 'log'")
+
+
+
+def generate_fresnel_samples(min_val, max_val, num_samples=100, focus_range=(5e-4, 5e-2), focus_fraction=0.6):
+    """
+    Generate Fresnel numbers with concentration in a specified focus range.
+
+    Parameters
+    ----------
+    min_val : float
+        Minimum Fresnel number (>=0).
+    max_val : float
+        Maximum Fresnel number.
+    num_samples : int
+        Total number of samples to draw.
+    focus_range : tuple(float, float)
+        Interval (low, high) within [min_val, max_val] to concentrate samples.
+    focus_fraction : float in [0,1]
+        Fraction of samples to draw within the focus_range.
+
+    Returns
+    -------
+    np.ndarray
+        Array of sampled Fresnel numbers of length num_samples.
+    """
+    low_focus, high_focus = focus_range
+    if not (min_val < low_focus < high_focus < max_val):
+        raise ValueError("focus_range must be within [min_val, max_val].")
+    # Number in focus and number outside
+    n_focus = int(np.round(num_samples * focus_fraction))
+    n_rest = num_samples - n_focus
+    # Log-uniform sampling helper
+    def loguniform(low, high, size):
+        return np.exp(np.random.uniform(np.log(low), np.log(high), size=size))
+    samples_focus = loguniform(low_focus, high_focus, n_focus)
+    samples_rest = loguniform(min_val, max_val, n_rest)
+    samples = np.concatenate([samples_focus, samples_rest])
+    np.random.shuffle(samples)
+    return samples
+
+def list_files_in_directory(directory, recursive=True, extensions=None):
+    """
+    List files in a directory, optionally filtering by extension and recursion.
+
+    Parameters
+    ----------
+    directory : str or Path
+        Path to the folder to scan.
+    recursive : bool, default True
+        If True, walks subdirectories; if False, lists only top-level files.
+    extensions : str or list of str, optional
+        Single extension (e.g. '.png') or list of extensions to include. Case-insensitive.
+        If None, all files are returned.
+
+    Returns
+    -------
+    List[str]
+        Sorted list of file paths matching criteria.
+    """
+    from pathlib import Path
+
+    p = Path(directory)
+    if not p.is_dir():
+        raise ValueError(f"{directory} is not a valid directory")
+
+    # Normalize extensions
+    if extensions:
+        if isinstance(extensions, str):
+            extensions = [extensions]
+        extensions = [ext.lower() for ext in extensions]
+
+    files = []
+    if recursive:
+        for fp in p.rglob('*'):
+            if fp.is_file():
+                if extensions:
+                    if fp.suffix.lower() in extensions:
+                        files.append(str(fp))
+                else:
+                    files.append(str(fp))
+    else:
+        for fp in p.iterdir():
+            if fp.is_file():
+                if extensions:
+                    if fp.suffix.lower() in extensions:
+                        files.append(str(fp))
+                else:
+                    files.append(str(fp))
+    return sorted(files)
+
+def save_dict_to_h5(data_dict, h5_path):
+    """
+    Save a nested dictionary of simple types and arrays to an HDF5 file.
+
+    Parameters
+    ----------
+    data_dict : dict
+        Nested dictionary where values are scalars, lists, numpy arrays, or dicts.
+    h5_path : str
+        Path to the output .h5 file.
+
+    Usage
+    -----
+    >>> save_dict_to_h5({'a': 1, 'b': np.arange(5), 'c': {'d': [1.0, 2.0]}}, 'out.h5')
+    """
+    def _recursively_save(group, dictionary):
+        for key, item in dictionary.items():
+            if isinstance(item, dict):
+                subgroup = group.create_group(key)
+                _recursively_save(subgroup, item)
+            else:
+                data = np.array(item)
+                group.create_dataset(key, data=data)
+
+    with h5py.File(h5_path, 'w') as h5file:
+        _recursively_save(h5file, data_dict)
+
+import pickle
+def save_dict_as_pickle(data_dict, filename):
+    """
+    Save a dictionary to a pickle file.
+
+    Parameters
+    ----------
+    data_dict : dict
+        The dictionary to serialize.
+    filename : str
+        Path to the output pickle file.
+    """
+    with open(filename, 'wb') as f:
+        pickle.dump(data_dict, f, protocol=pickle.HIGHEST_PROTOCOL)

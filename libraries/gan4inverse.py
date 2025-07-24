@@ -1,10 +1,10 @@
-from libraries.visualize import *
-from libraries.model_foundations import *
-from libraries.unet import *
-from libraries.comparison import *
-from libraries.fresnel_propagator import *
-from libraries.info import *
-from libraries.gauss_conv import *
+from visualize import *
+from model_foundations import *
+from unet import *
+from comparison import *
+from fresnel_propagator import *
+from info import *
+from gauss_conv import *
 from IPython.display import display
 from torch import optim
 
@@ -26,7 +26,7 @@ class make_ganrec_model(nn.Module):
             setattr(self, key, value)
 
         if 'add_noise' in kwargs.keys() and kwargs['add_noise']:
-            self.add_noise = True
+            self.add_noise = False
             self.best_noise = None
             self.no_of_noises = 1 if 'no_of_noises' not in kwargs.keys() else kwargs['no_of_noises']
 
@@ -48,8 +48,7 @@ class make_ganrec_model(nn.Module):
         self.transformed_images = to_device(self.transformed_images, self.device)
         self.noise_approximations = []
         self.create_seed()
-        self.generator(**self.__dict__)
-        self.discriminator(**self.__dict__)
+        self.make_model()
         self.define_task(**kwargs)
         self.criterion(**kwargs)
         self.easy_transformed_images()
@@ -69,11 +68,10 @@ class make_ganrec_model(nn.Module):
         ##################################################################################################
         # We first define the generator model
         ##################################################################################################
-        options = {'fc_depth': 0, 'units': 128, 'depth':3, 'cnn_depth': 0, 'conv_num': 32, 'conv_size': 3, 'dropout': 0.25, 'apply_batchnorm': True, 'normal_init': True, 'device': 'cuda:0'}
+        options = {'fc_depth': 0, 'units': 48, 'depth':3, 'cnn_depth': 0, 'conv_num': 32, 'conv_size': 3, 'dropout': 0.25, 'apply_batchnorm': True, 'normal_init': True, 'device': 'cuda:0'}
         options.update(self.__dict__)
         [setattr(self, key, value) for key, value in options.items()]
 
-        max_shape = max(self.shape_x, self.shape_y)
         self.output_size = (self.shape_x, self.shape_y)
 
         if self.fc_depth == 0:
@@ -118,13 +116,14 @@ class make_ganrec_model(nn.Module):
             ), self.device)
         else:
             if self.model_type == 'unet':
-                self.generator_model = to_device(nn.Sequential(*self.fc_stack, UNet(n_channels=self.input_channels, n_classes=self.output_num, bilinear=True)), self.device)
+                self.generator_model = to_device(UNet(n_channels=self.input_channels, n_classes=self.output_num, bilinear=True, use_checkpoint=self.use_checkpoint, base=self.base), self.device)
             elif self.model_type == 'wavelet':
-                self.generator_model = to_device(nn.Sequential(*self.fc_stack, Wavelet_UNet(n_channels=self.input_channels, n_classes=self.output_num, wavelet=self.wavelet)), self.device)
+                self.generator_model = to_device(Wavelet_UNet(n_channels=self.input_channels, n_classes=self.output_num, wavelet=self.wavelet, base = self.base), self.device)
             elif self.model_type == 'unet2':
-                self.generator_model = to_device(nn.Sequential(*self.fc_stack, UNET(in_channels=self.input_channels, out_channels=self.output_num)), self.device)
+                self.generator_model = to_device( UNET(n_channels=self.input_channels, out_channels=self.output_num), self.device)
+
             elif self.model_type == 'fc':
-                self.generator_model = self.generator(fc_depth = 3, units = 128, depth = 3, cnn_depth = 4, conv_num = 32, conv_size = 3, dropout = 0.25, apply_batchnorm = True, normal_init = True, device = self.device)
+                self.generator_model = self.generator(fc_depth = 3, units = 32, depth = 3, cnn_depth = 4, conv_num = self.conv_num, conv_size = 3, dropout = 0.25, apply_batchnorm = True, normal_init = True, device = self.device)
 
         if self.second_model:
             self.generator_model2 = to_device(nn.Sequential(*self.fc_stack, UNet(n_channels=self.input_channels, n_classes=self.output_num, bilinear=True)), self.device)
@@ -149,43 +148,30 @@ class make_ganrec_model(nn.Module):
     def discriminator(self, **kwargs):
         # ##################################################################################################
         # # We then define the discriminator model
-        # ##################################################################################################
-        options = {'dis_type': 'cnn', 'dis_depth': 3, 'conv_num': 3, 'device': 'cuda:0'}
-        for key, value in options.items():
-            if key not in self.__dict__.keys():
-                setattr(self, key, value)
-        in_channels_list = list(2**np.arange(self.dis_depth)) # [1, 16, 16, 32, 32]
-        out_channels_list =list(2**np.arange(1,self.dis_depth+1)) #[16, 16, 32, 32, 64]
-        kernel_size_list = [self.conv_num]*len(in_channels_list) #[3,3,3,3,3]
-        stride_list = [1]*len(in_channels_list) #[2,2,2,2,2]
-        discriminator_stack = nn.ModuleList([
-            conv2d_layer(in_channels=in_channels_list[i], out_channels=out_channels_list[i], kernel_size=kernel_size_list[i], stride=stride_list[i]) for i in range(len(in_channels_list))
-        ])
-        
-        if self.dis_depth == 0:
+        # ##################################################################################################      
+        self.init_model_path = self.__dict__.get('init_model_path', None)
+        self.save_model_path = self.__dict__.get('save_model_path', None)
+        if self.dis_type == None:
+            self.dis_depth = 0
+        if self.dis_depth == 0: 
             self.discriminator_model = None
         else:
-            if self.dis_type == 'cnn':            
-                self.discriminator_model =  to_device(nn.Sequential(
-                    *discriminator_stack,
-                    nn.Flatten(),
-                ), self.device)
-            elif self.dis_type == 'unet':
-                self.discriminator_model = to_device(nn.Sequential(*self.fc_stack, UNet(n_channels=self.input_channels, n_classes=1, bilinear=True), nn.Flatten()), self.device)
-
-        if 'init_model' in kwargs.keys():
-            if self.dis_depth > 0:
-                if kwargs['init_model']:
-                    # Load the model
-                    if 'init_model_path' in kwargs.keys():
-                        init_model_path = kwargs['init_model_path']
-                    else:
-                        init_model_path = kwargs['save_model_path'] 
-                    old_dis = torch.load(init_model_path + 'discriminator.pth')
-                    self.discriminator_model.load_state_dict(old_dis.state_dict())
-                    # self.discriminator_model.eval()
-        else:
-            self.init_weights()
+            from discriminator_factory import DiscriminatorFactory as DF
+            self.discriminator_model = DF(input_channels=self.input_channels, dis_type=self.dis_type, dis_depth=self.dis_depth, conv_num=self.conv_num, device=self.device, init_model = self.init_model, init_model_path = self.init_model_path, save_model_path = self.save_model_path)
+                  
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+                init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    init.zeros_(m.bias)
+            if isinstance(m, nn.Linear):
+                init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    init.zeros_(m.bias)
+            if isinstance(m, nn.BatchNorm2d):
+                init.ones_(m.weight)
+                init.zeros_(m.bias)
 
     def define_task(self, task = None, **kwargs):
         self.pad_times = 1 if 'pad_times' not in self.__dict__.keys() else self.pad_times
@@ -226,20 +212,7 @@ class make_ganrec_model(nn.Module):
         self.reshaped = to_device(transform(image, 'reshape') , self.device)
         self.normalized = transform(self.reshaped, 'normalize')
         self.norm = transform(self.reshaped, 'norm')
-    def init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
-                init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    init.zeros_(m.bias)
-            if isinstance(m, nn.Linear):
-                init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    init.zeros_(m.bias)
-            if isinstance(m, nn.BatchNorm2d):
-                init.ones_(m.weight)
-                init.zeros_(m.bias)
-
+    
     def best_noise_approximation(self, propagated_intensity, noise_type = 'poisson', **kwargs):
         #we use the best noise approximation
         noisy_image = []
@@ -265,18 +238,19 @@ class make_ganrec_model(nn.Module):
         return propagated_intensity
     
     def make_model(self):
-        # self.generator_model = self.generator(**self.__dict__)
-        # self.discriminator_model = self.discriminator(**self.__dict__)
-        if 'g_learning_rate' not in self.__dict__.keys():
-            self.g_learning_rate = 1e-3
-        if 'd_learning_rate' not in self.__dict__.keys():
-            self.d_learning_rate = 1e-4
-        if 'weight_decay' not in self.__dict__.keys():
-            self.weight_decay = 1e-8
-        if 'momentum' not in self.__dict__.keys():
-            self.momentum = 0.9
-        if 'amp' not in self.__dict__.keys():
-            self.amp = False
+        self.generator(**self.__dict__)
+        self.discriminator(**self.__dict__)
+        self.g_learning_rate = self.__dict__.get('g_learning_rate', 1e-3)
+        self.d_learning_rate = self.__dict__.get('d_learning_rate', 1e-4)
+        self.weight_decay = self.__dict__.get('weight_decay', 1e-8)
+        self.momentum = self.__dict__.get('momentum', 0.9)
+        self.amp = self.__dict__.get('amp', False)
+        self.scheduler_type = self.__dict__.get('scheduler_type', 'cosine')
+        self.generator_optimizer = None
+        self.generator_optimizer2 = None
+        self.discriminator_optimizer = None
+        self.scheduler = None
+        self.scheduler2 = None
 
         self.generator_optimizer = optim.Adam(self.generator_model.parameters(),lr=self.g_learning_rate, weight_decay=self.weight_decay)
         self.generator_optimizer2 = optim.Adam(self.generator_model2.parameters(),lr=self.g_learning_rate, weight_decay=self.weight_decay) if self.second_model else None
@@ -300,7 +274,8 @@ class make_ganrec_model(nn.Module):
         
         self.scheduler2 = optim.lr_scheduler.ExponentialLR(self.generator_optimizer2, gamma=0.1) if self.second_model else None
         self.grad_scaler = torch.amp.GradScaler(self.device, enabled=self.amp)    
-        
+     
+       
     def transform(self, x):
         if 'transform_type' in self.__dict__.keys():
             transform_type = self.transform_type
@@ -316,8 +291,6 @@ class make_ganrec_model(nn.Module):
     def propagator(self):
         # self.phase = transform(self.pred[:,0,:,:], self.ground_transform_type)
         # self.attenuation = transform(self.pred[:,1,:,:], self.ground_atten_transform_type)
-
-        
         self.phase = pos_neg_image(self.pred[:,0,:,:], self.positive_phase) if 'positive_phase' in self.__dict__.keys() else torch_reshape(self.pred[:,0,:,:])
         self.attenuation = pos_neg_image(self.pred[:,1,:,:], self.positive_attenuation) if 'positive_attenuation' in self.__dict__.keys() else torch_reshape(self.pred[:,1,:,:])
         self.attenuation = self.attenuation*self.abs_ratio
@@ -399,16 +372,8 @@ class make_ganrec_model(nn.Module):
         else:
             l1_loss =self.main_diff if self.l1_ratio != 0 else 0
             l2_loss = torch.mean(torch.square(self.difference)) if self.l2_ratio != 0 else 0
-        
-        contrast_diff = torch.mean(torch.abs(self.contrast - transform(propagated_intensity, 'contrast', self.transform_factor))) if self.contrast_ratio != 0 else 0
-        contrast_noramlize_difference = torch.mean(torch.square(self.contrast_normalize - transform(propagated_intensity, 'contrast_normalize', self.transform_factor))) if self.contrast_normalize_ratio != 0 else 0
-        brightness_noramlize_difference = torch.mean(torch.square(self.brightness_normalize - transform(propagated_intensity, 'brightness_normalize', 1 - self.transform_factor))) if self.brightness_normalize_ratio != 0 else 0
-        brightness_diff = torch.mean((torch.sqrt(self.propagated_intensity - (self.transformed_images)))) if self.brightness_ratio != 0 else 0
-        
-        norm_diff = torch.mean(torch.abs(self.norm - transform(propagated_intensity, 'norm', self.transform_factor))) if self.norm_ratio != 0 else 0
-        normalized_diff = torch.mean(torch.abs(self.normalized - transform(propagated_intensity, 'normalize', self.transform_factor))) if self.normalized_ratio != 0 else 0
  
-        self.final_loss =  self.entropy_ratio * cross_entropy + self.l1_ratio * l1_loss + self.contrast_ratio * contrast_diff + self.norm_ratio * norm_diff + self.normalized_ratio * normalized_diff + self.brightness_ratio * brightness_diff + self.contrast_normalize_ratio * contrast_noramlize_difference + self.brightness_normalize_ratio * brightness_noramlize_difference + self.l2_ratio * l2_loss
+        self.final_loss =  self.entropy_ratio * cross_entropy + self.l1_ratio * l1_loss + self.l2_ratio * l2_loss
         return self.final_loss
         
     def discriminator_loss(self, real_output, fake_output):
@@ -438,7 +403,7 @@ class make_ganrec_model(nn.Module):
         self.discriminator_optimizer.step() if self.dis_depth > 0 else None
         return self.gen_loss, self.dis_loss, self.propagated_intensity, self.phase, self.attenuation
     
-    def train(self, condition = None, value = None, **kwargs): # l1_ratio = 10, contrast_ratio = 0, normalized_ratio = 0, norm_ratio = 0, brightness_ratio = 0, contrast_normalize_ratio = 0, brightness_normalize_ratio = 0, l2_ratio = 0, fourier_ratio = 0):
+    def train(self, condition = None, value = None, **kwargs): # l1_ratio = 10, l2_ratio = 0, fourier_ratio = 0):
         
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -448,7 +413,6 @@ class make_ganrec_model(nn.Module):
         self.iter_nums = self.iter_num
         self.metrics(task = 'initialize')
         self.rectangle = 'whole' # 'whole', 'center left', 'center right'
-        self.make_model()
         self.stop_training = False
         self.total_time = 0
         from tqdm import tqdm as tq
@@ -472,7 +436,13 @@ class make_ganrec_model(nn.Module):
             self.epoch_time.append(time.time() - timer_starts)
             self.metrics('all', task = 'update', rectangle = self.rectangle) if self.append_all else None
             if self.use_tqdm:
-                pbar.set_postfix(ssim=f"{self.ssim_list[-1]:.3f}", psnr=f"{self.psnr_list[-1]:.3f}")
+                if self.ground_truth is not None:
+                    if self.ground_attenuation is not None:
+                        pbar.set_postfix(ssim=f"{self.ssim_list[-1]:.3f}", psnr=f"{self.psnr_list[-1]:.3f}", phase_ssim = f"{self.ground_ssim_list[-1]:.3f}", attenuation_ssim = f"{self.ground_att_ssim_list[-1]:.3f}")
+                    else:
+                        pbar.set_postfix(ssim=f"{self.ssim_list[-1]:.3f}", psnr=f"{self.psnr_list[-1]:.3f}", phase_ssim = f"{self.ground_ssim_list[-1]:.3f}",)
+                else:
+                    pbar.set_postfix(ssim=f"{self.ssim_list[-1]:.3f}", psnr=f"{self.psnr_list[-1]:.3f}",)
             
             if  self.update_rate:
                 # self.metrics('all', task = 'update', rectangle = self.rectangle) if not self.append_all else None    
@@ -776,16 +746,16 @@ class make_ganrec_model(nn.Module):
         self.df = self.df.fillna(0)
         return self.df
 
-    def visualize(self, show_or_plot = 'show', cmap = 'coolwarm', dict = None, axis = 'off', plot_axis = 'half', images_per_row=3, fig_size=(20,20), show_absorption = True, show_images = True,  sa_hspace = -0.35, **kwargs):
-        
+    def visualize(self, show_absorption = True, **kwargs):
+        kwargs = join_dict(kwargs, vis_kwargs.copy())
         gt = tensor_to_np(self.ground_truth) if self.ground_truth is not None else None
-        learned_image = self.phase_list[-1]
+        learned_image = self.unblurred_list[-1] if self.task == 'learn_gaussian' or self.task == 'learn_motion' or self.task == 'unblur' or self.task == 'ct' else self.phase_list[-1]
         if show_absorption:
             gt_att = tensor_to_np(self.ground_attenuation) if self.ground_attenuation is not None else None
-            learned_attenuation = self.attenuation_list[-1]
+            learned_attenuation = self.attenuation_list[-1] if self.task == 'learn_phase' else None
         else:
             gt_att = tensor_to_np(self.ground_attenuation) if self.ground_attenuation is not None else None
-            learned_attenuation = self.attenuation_list[-1]
+            learned_attenuation = self.attenuation_list[-1] if self.task == 'learn_phase' else None
         df = self.df
         working_with_multiple_images = True if type(learned_image) is list else False
         input_name = 'Input hologram (I)' if self.shape_x > 128 else 'I' 
@@ -794,25 +764,53 @@ class make_ganrec_model(nn.Module):
         ground_attenuation_name = 'Simulated absorption (A)' if self.shape_x > 128 else 'GT A'
         retrieved_phase_name = 'Retrieved phase (φ)'  if self.shape_x > 128 else 'Retrieved φ'
         retrieved_attenuation_name = "Retrieved absorption (A*)" if self.shape_x > 128 else 'Retrieved A'
-        if not working_with_multiple_images:
-            if self.ground_truth is not None:
-                images = [tensor_to_np(self.transformed_images), self.propagated_intensity_list[-1], np.abs(tensor_to_np(transform(self.transformed_images, 'minmax')) - tensor_to_np(transform(self.propagated_intensity_list[-1], 'minmax')))**2, learned_image] if self.ground_attenuation is None else [tensor_to_np(self.transformed_images), self.propagated_intensity_list[-1], np.abs(tensor_to_np(transform(self.transformed_images, 'minmax')) - tensor_to_np(transform(self.propagated_intensity_list[-1], 'minmax')))**2, learned_image, gt, np.abs(gt - learned_image)**2, learned_attenuation, gt_att, np.abs(gt_att - learned_attenuation)**2]
-                # title = ['I', 'Ĩ after iter = '+str(self.iter_num), '|I - Ĩ|', 'φ', 'GT Φ', '|Φ - φ|'] if self.ground_attenuation is None else ['I', 'Ĩ after iters = '+str(self.iter_num), '|I - Ĩ|', 'φ', 'Φ', '|φ - Φ|', 'Ã', 'A', '|Ã - A|']
-                title = [input_name, recon_name + ' after iter = '+str(self.iter_num), 'sq(|I - Ĩ|)', retrieved_phase_name, ground_phase_name, 'sq(|Φ - φ|)'] if self.ground_attenuation is None else [input_name, recon_name + ' after iters = '+str(self.iter_num), 'sq(|I - Ĩ|)', retrieved_phase_name, ground_phase_name, 'sq(|Φ - φ|)', retrieved_attenuation_name, ground_attenuation_name, 'sq(|A - A*|)']
-            else:
-                images = [tensor_to_np(self.transformed_images), self.propagated_intensity_list[-1], np.abs(tensor_to_np(transform(self.transformed_images, 'minmax')) - tensor_to_np(transform(self.propagated_intensity_list[-1], 'minmax')))**2, learned_image, learned_attenuation]
-                # title = ['I', 'Ĩ after iter = '+str(self.iter_num), '|I - Ĩ|', 'φ', 'Ã']
-                title = [input_name, recon_name + ' after iter = '+str(self.iter_num), 'sq(|I - Ĩ|)', retrieved_phase_name, retrieved_attenuation_name]
-            visualize(images, title = title, show_or_plot = show_or_plot, cmap = cmap, dict = dict, axis = axis, plot_axis = plot_axis, images_per_row=images_per_row, fig_size=fig_size, **kwargs)
-    
-        else:
-            n = len(self.phase_list[-1])
-            if self.ground_truth is not None:
-                # visualize([gt, np.abs(gt - self.phase_list[-1]), self.phase_list[-1]], show_or_plot=show_or_plot , plot_axis = plot_axis, images_per_row=n, title = ['GT '+str(i) for i in range(n)]+['L '+str(i) for i in range(n)]+['|GT-R| '+str(i) for i in range(n)], cmap = cmap, dict = dict, axis = axis, fig_size=fig_size, **kwargs)
-                visualize([gt, np.abs(gt - self.phase_list[-1]), self.phase_list[-1], gt_att, np.abs(gt_att - self.attenuation_list[-1]), self.attenuation_list[-1]], sa_hspace = sa_hspace, show_or_plot=show_or_plot , plot_axis = plot_axis, images_per_row=n, title = [ground_phase_name+str(i) for i in range(n)]+[retrieved_phase_name+str(i) for i in range(n)]+[ground_attenuation_name+str(i) for i in range(n)]+[retrieved_attenuation_name+str(i) for i in range(n)], cmap = cmap, dict = dict, axis = axis, fig_size=fig_size, **kwargs)
-            else:
-                visualize(self.phase_list[-1], show_or_plot=show_or_plot , plot_axis = plot_axis, images_per_row=n, title = [retrieved_phase_name+str(i) for i in range(n)], cmap = cmap, sa_hspace = sa_hspace, dict = dict, axis = axis, fig_size=fig_size, **kwargs)
+
         
+        if self.task == 'learn_gaussian' or self.task == 'learn_motion' or self.task == 'unblur' or self.task == 'ct':
+            if not working_with_multiple_images:            
+                I = tensor_to_np(self.transformed_images) if self.model_type != 'multihead' else tensor_to_np(self.I)
+                PI = tensor_to_np(self.propagated_intensity_list[-1]) if self.model_type != 'multihead' else tensor_to_np(self.propagated_intensity)
+                images = [I, PI, tensor_to_np(self.difference**2), learned_image] if self.ground_truth is None else [I, PI, tensor_to_np(self.difference**2), learned_image, gt, np.abs(gt - learned_image)**2]
+                title = ['Blurred (I)', 'Forward (Ĩ): iter'+str(self.iter_num), '|I - Ĩ|','Retrieved (R)', 'GT', 'sq(|GT-R|)'] if self.ground_truth is None else ['blurred(Ĩ) ', 'Forwarded (Ĩ): epochs'+str(self.iter_num), 'sq(|I - Ĩ|)', 'Retrieved (R)', 'GT', 'sq(|GT-R|)'] 
+            else:
+                n = len(self.unblurred_list[-1])
+                images = self.unblurred_list[-1] + self.ground_truth + [(self.unblurred_list[-1][i] - self.ground_truth[i])**2 for i in range(n)] if self.ground_truth is not None else self.unblurred_list[-1]
+                images2 = self.propagated_intensity_list[-1] + tensor_to_np(self.transformed_images) + [(self.propagated_intensity_list[-1][i] - tensor_to_np(self.transformed_images[i]))**2 for i in range(n)] if self.ground_truth is not None else self.propagated_intensity_list[-1]
+                val_from_images.append(images2)
+                title = ['R '+str(i) for i in range(n)] + ['GT '+str(i) for i in range(n)] + ['sq(|R - GT|) '+str(i) for i in range(n)] if self.ground_truth is not None else ['R '+str(i) for i in range(n)]
+                titles = ['R '+str(i) for i in range(n)] + ['GT '+str(i) for i in range(n)] + ['sq(|R - GT|) '+str(i) for i in range(n)] if self.ground_truth is not None else ['R '+str(i) for i in range(n)]
+                title.__add__(titles)
+                # visualize(images, title = titles, vmode = vmode, cmap = cmap, dict = dict, axis = axis, plot_axis = plot_axis, images_per_row=images_per_row, fig_size=fig_size, **kwargs)
+            kwargs['title'] = title
+            visualize(images, **kwargs)
+        
+        elif self.task == 'learn_phase':
+            I = tensor_to_np(self.transformed_images) if self.model_type != 'multihead' else tensor_to_np(self.I)
+            PI = self.propagated_intensity_list[-1] if self.model_type != 'multihead' else tensor_to_np(self.propagated_intensity)
+            print(PI.shape, "PI.shape", I.shape, "I.shape")
+            if not working_with_multiple_images:
+                if self.ground_truth is not None:
+                    images = [I, PI, np.abs(transform(I, 'minmax') - transform(PI, 'minmax'))**2, learned_image] if self.ground_attenuation is None else [I, PI, np.abs(transform(I, 'minmax') - transform(PI, 'minmax'))**2, learned_image, gt, np.abs(gt - learned_image)**2, learned_attenuation, gt_att, np.abs(gt_att - learned_attenuation)**2]
+                    # title = ['I', 'Ĩ after iter = '+str(self.iter_num), '|I - Ĩ|', 'φ', 'GT Φ', '|Φ - φ|'] if self.ground_attenuation is None else ['I', 'Ĩ after iters = '+str(self.iter_num), '|I - Ĩ|', 'φ', 'Φ', '|φ - Φ|', 'Ã', 'A', '|Ã - A|']
+                    title = [input_name, recon_name + ' after iter = '+str(self.iter_num), 'sq(|I - Ĩ|)', retrieved_phase_name, ground_phase_name, 'sq(|Φ - φ|)'] if self.ground_attenuation is None else [input_name, recon_name + ' after iters = '+str(self.iter_num), 'sq(|I - Ĩ|)', retrieved_phase_name, ground_phase_name, 'sq(|Φ - φ|)', retrieved_attenuation_name, ground_attenuation_name, 'sq(|A - A*|)']
+                else:
+                    images = [I, PI, np.abs(transform(I, 'minmax') - transform(PI, 'minmax'))**2, learned_image, learned_attenuation]
+                    # title = ['I', 'Ĩ after iter = '+str(self.iter_num), '|I - Ĩ|', 'φ', 'Ã']
+                    title = [input_name, recon_name + ' after iter = '+str(self.iter_num), 'sq(|I - Ĩ|)', retrieved_phase_name, retrieved_attenuation_name]
+                kwargs['title'] = title
+                visualize(images, **kwargs)
+        
+        
+        
+            else:
+                n = len(self.phase_list[-1])
+                if self.ground_truth is not None:
+                    # visualize([gt, np.abs(gt - self.phase_list[-1]), self.phase_list[-1]], vmode=vmode , plot_axis = plot_axis, images_per_row=n, title = ['GT '+str(i) for i in range(n)]+['L '+str(i) for i in range(n)]+['|GT-R| '+str(i) for i in range(n)], cmap = cmap, dict = dict, axis = axis, fig_size=fig_size, **kwargs)
+                    kwargs['title'] = [ground_phase_name+str(i) for i in range(n)]+[retrieved_phase_name+str(i) for i in range(n)]+[ground_attenuation_name+str(i) for i in range(n)]+[retrieved_attenuation_name+str(i) for i in range(n)]
+                    visualize([gt, np.abs(gt - self.phase_list[-1]), self.phase_list[-1], gt_att, np.abs(gt_att - self.attenuation_list[-1]), self.attenuation_list[-1]], **kwargs)
+                else:
+                    kwargs['title'] = [retrieved_phase_name+str(i) for i in range(n)]
+                    visualize(self.phase_list[-1], **kwargs)
         if 'plot_pd' in self.__dict__.keys() and self.plot_pd is True:
             if self.ground_truth is not None:
                 plot_pandas(df, column_range=['gen_loss', 'dis_loss', 'main_diff', 'ssim_list', 'psnr_list', 'ground_ssim_list', 'ground_psnr_list', 'ground_main_diff_list'])
@@ -933,3 +931,13 @@ class make_ganrec_model(nn.Module):
                     io.imsave(path + 'propagated/propagated_intensity_' + name[i] + '.tif', self.propagated_intensity_list[-1][i])
                 else:
                     io.imsave(path + 'propagated/propagated_intensity_' + name + str(i).zfill(4) + '.tif', self.propagated_intensity_list[-1][i])
+
+if __name__ == '__main__':
+    from init_lib import *
+    jd = experiments.jd_mg(downsampling_factor = 2**1, positive_phase = 'relu_inverted', positive_attenuation = 'relu', transformation_type = 'leakyrelu', model_type = 'unet', abs_ratio = 5e-4, dis_depth = 2, dis_type = 'cnn', device = 'cuda:1')
+    jd['path'] = jd['path'].transpose()
+    jd['path'].shape
+    model = make_ganrec_model(**jd)
+    model.train(iter_num = 20)
+
+    visualize([model.transformed_images, model.phase, -1*torch.log(model.attenuation)], title = ['Given hologram', 'Phase', 'Absorbance'], cmap = 'gray', images_per_row = 3, vmode = 'zoom', zoomout_location = 'bottom 3', axis = 'off', colorbar = True, colorbar_location = 'right', axin_axis = False, fontsize = 40, label_size = 30, min_max = False, move_hs = [-0.2,0.1,0.2], move_vs = [-0.05, 0.23, -0.05], pad = -0.02)

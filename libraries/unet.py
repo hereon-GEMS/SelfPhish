@@ -2,50 +2,53 @@
 from torch_utils import *
 from unet_parts import *
 from transform2d import *
+from torch.utils.checkpoint import checkpoint
+
+def checkpoint_wrapper(func, *args):
+    return checkpoint(func, *args, use_reentrant=False)
 
 class UNet(nn.Module):
-    def __init__(self, n_channels, n_classes, bilinear=False):
+    def __init__(self, n_channels, n_classes, bilinear=False, use_checkpoint=True, base=64):
         super(UNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
+        self.use_checkpoint = use_checkpoint
+        self.base = base
 
-        self.inc = (DoubleConv(n_channels, 64))
-        self.down1 = (Down(64, 128))
-        self.down2 = (Down(128, 256))
-        self.down3 = (Down(256, 512))
-        factor = 2 if bilinear else 1
-        self.down4 = (Down(512, 1024 // factor))
-        self.up1 = (Up(1024, 512 // factor, bilinear))
-        self.up2 = (Up(512, 256 // factor, bilinear))
-        self.up3 = (Up(256, 128 // factor, bilinear))
-        self.up4 = (Up(128, 64, bilinear))
-        self.outc = (OutConv(64, n_classes))
+        # Encoder (down path)
+        self.encoder = nn.ModuleList([
+            DoubleConv(n_channels, base),
+            Down(base, base * 2),
+            Down(base * 2, base * 4),
+            Down(base * 4, base * 8),
+            Down(base * 8, (base * 16) // (2 if bilinear else 1)),
+        ])
+        # Decoder (up path)
+        self.decoder = nn.ModuleList([
+            Up(base * 16, (base * 8) // (2 if bilinear else 1), bilinear),
+            Up(base * 8, (base * 4) // (2 if bilinear else 1), bilinear),
+            Up(base * 4, (base * 2) // (2 if bilinear else 1), bilinear),
+            Up(base * 2, base, bilinear),
+        ])
+        self.outc = OutConv(base, n_classes)
 
     def forward(self, x):
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
-        logits = self.outc(x)
+        f = checkpoint_wrapper if self.use_checkpoint else lambda f, *args: f(*args)
+        # Encoder
+        x1 = f(self.encoder[0], x)
+        x2 = f(self.encoder[1], x1)
+        x3 = f(self.encoder[2], x2)
+        x4 = f(self.encoder[3], x3)
+        x5 = f(self.encoder[4], x4)
+        # Decoder
+        x = f(self.decoder[0], x5, x4)
+        x = f(self.decoder[1], x, x3)
+        x = f(self.decoder[2], x, x2)
+        x = f(self.decoder[3], x, x1)
+        logits = f(self.outc, x)
         return logits
-
-    def use_checkpointing(self):
-        self.inc = torch.utils.checkpoint(self.inc)
-        self.down1 = torch.utils.checkpoint(self.down1)
-        self.down2 = torch.utils.checkpoint(self.down2)
-        self.down3 = torch.utils.checkpoint(self.down3)
-        self.down4 = torch.utils.checkpoint(self.down4)
-        self.up1 = torch.utils.checkpoint(self.up1)
-        self.up2 = torch.utils.checkpoint(self.up2)
-        self.up3 = torch.utils.checkpoint(self.up3)
-        self.up4 = torch.utils.checkpoint(self.up4)
-        self.outc = torch.utils.checkpoint(self.outc)
+    
 
 """
 Adapted from the following sources:
@@ -279,62 +282,77 @@ class Wavelet_Up(nn.Module):
         x = torch.cat([x2, x1], dim=1)
         return self.conv(x)
 
-
-    def forward(self, x1, x2):
-        x1 = self.up(x1)
-        # input is CHW
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
-
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
-                        diffY // 2, diffY - diffY // 2])
-        # if you have padding issues, see
-        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
-        # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
-        x = torch.cat([x2, x1], dim=1)
-        return self.conv(x)
-
 class Wavelet_UNet(nn.Module):
-    def __init__(self, n_channels, n_classes, wavelet='db1'):
+    def __init__(self, n_channels, n_classes, wavelet='db1', use_checkpoint = True):
         super(Wavelet_UNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
-
-        self.inc = (DoubleConv(n_channels, 64))
-        self.down1 = (Wavelet_Down(64, 128, wavelet))
-        self.down2 = (Wavelet_Down(128, 256, wavelet))
-        self.down3 = (Wavelet_Down(256, 512, wavelet))
-        self.down4 = (Wavelet_Down(512, 512, wavelet))
-        self.up1 = (Wavelet_Up(1024, 256, wavelet))
-        self.up2 = (Wavelet_Up(512, 128, wavelet))
-        self.up3 = (Wavelet_Up(256, 64, wavelet))
-        self.up4 = (Wavelet_Up(128, 64, wavelet))
-        self.outc = (OutConv(64, n_classes))
+        self.use_checkpoint = use_checkpoint
+        self.encoder = nn.ModuleList([
+            DoubleConv(n_channels, 64),
+            Wavelet_Down(64, 128, wavelet),
+            Wavelet_Down(128, 256, wavelet),
+            Wavelet_Down(256, 512, wavelet),
+            Wavelet_Down(512, 1024 // 2, wavelet),
+        ])
+        self.decoder = nn.ModuleList([
+            Wavelet_Up(1024, 512 // 2, wavelet),
+            Wavelet_Up(512, 256 // 2, wavelet),
+            Wavelet_Up(256, 128 // 2, wavelet),
+            Wavelet_Up(128, 64, wavelet),
+        ])
+        self.outc = OutConv(64, n_classes)
+        
 
     def forward(self, x):
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
-        logits = self.outc(x)
+        f = checkpoint_wrapper if self.use_checkpoint else lambda f, *args: f(*args)
+        # Encoder
+        x1 = f(self.encoder[0], x)
+        x2 = f(self.encoder[1], x1)
+        x3 = f(self.encoder[2], x2)
+        x4 = f(self.encoder[3], x3)
+        x5 = f(self.encoder[4], x4)
+        # Decoder
+        x = f(self.decoder[0], x5, x4)
+        x = f(self.decoder[1], x, x3)
+        x = f(self.decoder[2], x, x2)
+        x = f(self.decoder[3], x, x1)
+        logits = f(self.outc, x)
         return logits
 
-    def use_checkpointing(self):
-        self.inc = torch.utils.checkpoint(self.inc)
-        self.down1 = torch.utils.checkpoint(self.down1)
-        self.down2 = torch.utils.checkpoint(self.down2)
-        self.down3 = torch.utils.checkpoint(self.down3)
-        self.down4 = torch.utils.checkpoint(self.down4)
-        self.up1 = torch.utils.checkpoint(self.up1)
-        self.up2 = torch.utils.checkpoint(self.up2)
-        self.up3 = torch.utils.checkpoint(self.up3)
-        self.up4 = torch.utils.checkpoint(self.up4)
-        self.outc = torch.utils.checkpoint(self.outc)
+class Wavelet_UNet(nn.Module):
+    def __init__(self, n_channels, n_classes, wavelet='db1', use_checkpoint=False, base = 32):
+        super(Wavelet_UNet, self).__init__()
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.use_checkpoint = use_checkpoint
+        pow_cof = np.log2(base)
+        powers = [int(2**(pow_cof + i)) for i in range(0, 4)]
+
+        self.inc = (DoubleConv(n_channels, powers[0]))
+        self.down1 = (Wavelet_Down(powers[0], powers[1], wavelet))
+        self.down2 = (Wavelet_Down(powers[1], powers[2], wavelet))
+        self.down3 = (Wavelet_Down(powers[2], powers[3], wavelet))
+        self.down4 = (Wavelet_Down(powers[3], powers[3], wavelet))
+        self.up1 = (Wavelet_Up(powers[3] * 2, powers[2], wavelet))
+        self.up2 = (Wavelet_Up(powers[2] * 2, powers[1], wavelet))
+        self.up3 = (Wavelet_Up(powers[1] * 2, powers[0], wavelet))
+        self.up4 = (Wavelet_Up(powers[0] * 2, powers[0], wavelet))
+        self.outc = (OutConv(powers[0], n_classes))
+        
+    def forward(self, x):
+        f = checkpoint if self.use_checkpoint else lambda f, *args: f(*args)
+        x1 = f(self.inc, x)
+        x2 = f(self.down1, x1)
+        x3 = f(self.down2, x2)
+        x4 = f(self.down3, x3)
+        x5 = f(self.down4, x4)
+        x = f(self.up1, x5, x4)
+        x = f(self.up2, x, x3)
+        x = f(self.up3, x, x2)
+        x = f(self.up4, x, x1)
+        logits = f(self.outc, x)
+        return logits    
 
 class MRConcat(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -443,3 +461,214 @@ class UNET(nn.Module):
             x = self.ups[idx+1](concat_skip)
 
         return self.final_conv(x)
+
+class Unet_skip(nn.Module):
+    def __init__(
+            self, 
+            in_channels=3, 
+            out_channels=1, 
+            features=[16, 32, 64, 128], 
+            bilinear=False
+    ):
+        super(Unet_skip, self).__init__()
+        self.bilinear = bilinear
+
+        # Downsampling path
+        self.downs = nn.ModuleList()
+        for feature in features:
+            self.downs.append(DoubleConv(in_channels, feature))
+            in_channels = feature
+
+        # Bottleneck
+        self.bottleneck = DoubleConv(features[-1], features[-1] * 2)
+
+        # Upsampling path
+        self.ups = nn.ModuleList()
+        for feature in reversed(features):
+            if bilinear:
+                self.ups.append(nn.Sequential(
+                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+                    nn.Conv2d(feature * 2, feature, kernel_size=1)
+                ))
+            else:
+                self.ups.append(
+                    nn.ConvTranspose2d(feature * 2, feature, kernel_size=2, stride=2)
+                )
+            self.ups.append(DoubleConv(feature * 2, feature))
+
+        # Final output layer
+        self.final_conv = nn.Conv2d(features[0], out_channels, kernel_size=1)
+
+    def forward(self, x):
+        skip_connections = []
+
+        # Down path
+        for down in self.downs:
+            x = down(x)
+            skip_connections.append(x)
+            x = F.max_pool2d(x, kernel_size=2)
+
+        # Bottleneck
+        x = self.bottleneck(x)
+
+        # Reverse skip connections for upsampling
+        skip_connections = skip_connections[::-1]
+
+        # Up path
+        for idx in range(0, len(self.ups), 2):
+            x = self.ups[idx](x)
+            skip_connection = skip_connections[idx // 2]
+
+            # Resize if shapes differ
+            if x.shape != skip_connection.shape:
+                x = F.interpolate(x, size=skip_connection.shape[2:], mode='bilinear', align_corners=True)
+
+            # Concatenate and apply DoubleConv
+            x = torch.cat((skip_connection, x), dim=1)
+            x = self.ups[idx + 1](x)
+
+        return self.final_conv(x)
+
+    def use_checkpointing(self):
+        """Enable checkpointing to save memory."""
+        for module in self.downs:
+            module = torch.utils.checkpoint(module)
+        self.bottleneck = torch.utils.checkpoint(self.bottleneck)
+        for module in self.ups:
+            module = torch.utils.checkpoint(module)
+  
+class ResidualUNet(nn.Module):
+    def __init__(
+        self,
+        in_channels=3,
+        out_channels=1,
+        features=[64, 128, 256, 512],
+        bilinear=False
+    ):
+        super().__init__()
+        self.bilinear = bilinear
+
+        # Downsampling path
+        self.downs = nn.ModuleList()
+        for feature in features:
+            self.downs.append(ResidualDoubleConv(in_channels, feature))
+            in_channels = feature
+
+        # Bottleneck
+        self.bottleneck = ResidualDoubleConv(features[-1], features[-1] * 2)
+
+        # Upsampling path
+        self.ups = nn.ModuleList()
+        for feature in reversed(features):
+            if bilinear:
+                self.ups.append(nn.Sequential(
+                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+                    nn.Conv2d(feature * 2, feature, kernel_size=1)
+                ))
+            else:
+                self.ups.append(
+                    nn.ConvTranspose2d(feature * 2, feature, kernel_size=2, stride=2)
+                )
+            self.ups.append(ResidualDoubleConv(feature * 2, feature))
+
+        # Final output layer
+        self.final_conv = nn.Conv2d(features[0], out_channels, kernel_size=1)
+
+    def forward(self, x):
+        skip_connections = []
+
+        # Down path
+        for down in self.downs:
+            x = down(x)
+            skip_connections.append(x)
+            x = F.max_pool2d(x, kernel_size=2)
+
+        # Bottleneck
+        x = self.bottleneck(x)
+
+        # Reverse skip connections for upsampling
+        skip_connections = skip_connections[::-1]
+
+        # Up path
+        for idx in range(0, len(self.ups), 2):
+            x = self.ups[idx](x)
+            skip_connection = skip_connections[idx // 2]
+
+            # Resize if shapes differ
+            if x.shape != skip_connection.shape:
+                x = F.interpolate(x, size=skip_connection.shape[2:], mode='bilinear', align_corners=True)
+
+            # Concatenate and apply ResidualDoubleConv
+            x = torch.cat((skip_connection, x), dim=1)
+            x = self.ups[idx + 1](x)
+
+        return self.final_conv(x)
+  
+def progressive_unfreeze(model, epoch: int, unfreeze_every: int = 10, weight_avg_factor: float = 0.5):
+    """
+    Progressive unfreezing for models with an encoder (e.g., UNet).
+    Unfreezes encoder blocks gradually as training progresses.
+    """
+    if hasattr(model, 'encoder'):
+        blocks = model.encoder
+    else:
+        print("No encoder attribute found – skipping unfreeze.")
+        return
+
+    num_blocks = len(blocks)
+    num_unfrozen = min(epoch // unfreeze_every, num_blocks)
+
+    for i, block in enumerate(blocks):
+        trainable = i >= (num_blocks - num_unfrozen)
+        for p in block.parameters():
+            if trainable:
+                # Smooth transition with weight averaging
+                if hasattr(p, 'data') and hasattr(p, 'grad'):
+                    p.data = weight_avg_factor * p.data + (1 - weight_avg_factor) * p.data.clone()
+            p.requires_grad_(trainable)
+
+    print(f"Unfroze last {num_unfrozen}/{num_blocks} encoder blocks at epoch {epoch}.")
+    
+def partial_load_unet(src: nn.Module, tgt: nn.Module):
+    """
+    Copy weights from src→tgt:
+     - exact‐shape params are copied wholesale
+     - mismatched params get the first min(src_dim, tgt_dim) channels copied
+     - log any partial copies for later inspection
+    """
+    src_sd = src.state_dict()
+    tgt_sd = tgt.state_dict()
+    mismatches = {}
+
+    for name, tgt_param in tgt_sd.items():
+        if name not in src_sd:
+            # entirely new tensor in target
+            continue
+
+        src_param = src_sd[name]
+        if src_param.shape == tgt_param.shape:
+            # direct copy
+            tgt_param.copy_(src_param)
+        else:
+            # figure out how many channels/features overlap
+            min_dims = tuple(min(s, t) for s, t in zip(src_param.shape, tgt_param.shape))
+            slices = tuple(slice(0, d) for d in min_dims)
+
+            # copy only the overlapping subtensor
+            tgt_param[slices].copy_(src_param[slices])
+
+            mismatches[name] = {
+                "src_shape": src_param.shape,
+                "tgt_shape": tgt_param.shape,
+                "copied": min_dims
+            }
+
+    # write back into the model
+    tgt.load_state_dict(tgt_sd)
+    import logging
+    if mismatches:
+        logging.getLogger(__name__).info(
+            f"Partial-loaded {len(mismatches)} tensors:\n" +
+            "\n".join(f"  {n}: {v}" for n,v in mismatches.items())
+        )
+    return mismatches
