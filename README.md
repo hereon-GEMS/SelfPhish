@@ -12,7 +12,7 @@
 
 1. **Clone the repo**  
    ```bash
-   git clone https://github.com/daveabiy/SelfPhish.git
+   git clone https://github.com/hereon-GEMS/SelfPhish.git
    cd SelfPhish
    ```
 
@@ -45,7 +45,12 @@ You can quickly test SelfPhish by running the provided `qr.py` script. This scri
 ```bash
 python qr.py
 ```
-
 The script will automatically handle the necessary imports and path setup. You can modify `qr.py` to run your own experiments or change parameters as needed.
+
+## Examples for real experimental phase retrieval 
+1. **Mg-wire data:**
+   - [Mg-wire example](https://github.com/hereon-GEMS/SelfPhish/blob/main/examples/mg_wire.ipynb)
+2. **Spider hair:**
+   - [Mg-wire example](https://github.com/hereon-GEMS/SelfPhish/blob/main/examples/spider.ipynb)
 
 Enjoy experimenting with SelfPhish! 🚀
