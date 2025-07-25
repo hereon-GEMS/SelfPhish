@@ -203,7 +203,7 @@ class solver(nn.Module):
                 
     def criterion(self, **kwargs):
         self.ssim = to_device(SSIM(), self.device)
-        self.psnr = to_device(PSNR(), self.device)
+        self.psnr = to_device(PSNR(data_range=1.0), self.device)
         self.mssim = to_device(mSSIM(), self.device)
         # self.fid.update(self.transformed_images, real=True)
         
@@ -642,7 +642,7 @@ class solver(nn.Module):
                     self.best_ssim_counter += 1
 
             if property == 'psnr':
-                self.psnr_list.append(tensor_to_np(self.psnr(self.transformed_images, self.propagated_intensity)))
+                self.psnr_list.append(tensor_to_np(self.psnr(pos_neg_image(self.transformed_images,'pre_ssim'), pos_neg_image(self.propagated_intensity,'pre_ssim'))))
 
             if property == 'main_diff':
                 self.main_diff_list.append(tensor_to_np(self.main_diff))
@@ -675,10 +675,10 @@ class solver(nn.Module):
                     ph = self.phase
                     gt_att = self.ground_attenuation if self.ground_attenuation is not None else None
                     att = self.attenuation if self.ground_attenuation is not None else None
-                gt = pos_neg_image(gt, 'ssim')
-                ph = pos_neg_image(ph, 'ssim')
-                gt_att = pos_neg_image(gt_att, 'ssim') if self.ground_attenuation is not None else None
-                att = pos_neg_image(att, 'ssim') if self.ground_attenuation is not None else None
+                gt = pos_neg_image(gt, 'pre_ssim')
+                ph = pos_neg_image(ph, 'pre_ssim')
+                gt_att = pos_neg_image(gt_att, 'pre_ssim') if self.ground_attenuation is not None else None
+                att = pos_neg_image(att, 'pre_ssim') if self.ground_attenuation is not None else None
                 if property == 'ground_ssim':
                     self.ground_ssim_list.append(tensor_to_np(self.ssim(gt, ph)))
                 if property == 'ground_psnr':

@@ -13,4 +13,6 @@ ipython
 qrcode
 tqdm
 ipykernel
+plotly
+ipywidgets
 #python -m ipykernel install --user --name=selfphish --display-name "Python (selfphish)"
