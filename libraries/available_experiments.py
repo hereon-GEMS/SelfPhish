@@ -223,7 +223,7 @@ class available_experiments():
         return join_dict(join_dict(kwargs,  spider_hair), setup_info, False)
     
     def spider_hair_best(self, idx = [120], setup_info = setup_info, **kwargs):
-        image_path = '/data/hereon/wp/user/hailudaw/git_folders/sssmmmrrrlll/smrl/data/spider/data_spider.tif'
+        image_path = '../data/spider/data_spider.tif'
         idx = [idx] if type(idx) is int else idx
         images = io.imread(image_path)
         if len(idx) > 1:
@@ -240,22 +240,6 @@ class available_experiments():
         }
         return join_dict(join_dict(kwargs, spider_hair_best), setup_info)
 
-    def spider_big(self, **kwargs):
-        image_path = '/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/spider/test_data_nano3637_holotomo_step_R4B_highMag_100_angle.tiff'
-        image = io.imread(image_path)
-        spider_big = {
-            'path': image,
-            'experiment_name': 'spider_main',
-            'fresnel_number': fresnel_calculator(energy_from_wavelength(0.1127*10**(-9)).magnitude, 0.1127*10**(-9), 26.1838*10**(-9), 7.8881e+07*1e-9),
-            'energy_kev': energy_from_wavelength(0.1127*10**(-9)).magnitude,
-            'lam': 0.1127*10**(-9),
-            'z': 7.8881e+07*1e-9,
-            'pv': 26.1838*10**(-9),
-            'name': 'big_spider',
-            'image_path': image_path,
-        }
-        return join_dict(kwargs, spider_big)
-    
     def spider_jdora(self, **kwargs):
         image = io.imread('/data/hereon/wp/user/hailudaw/git_folders/Gans4Inverse/data/jdora/data/holograms/spider_hair.tiff')/1.1
         spider_jdora = {
@@ -273,7 +257,7 @@ class available_experiments():
 
     def jd_mg(self, setup_info=setup_info, **kwargs):
         # (energy=11.0, px_size=6500.0, z02=1.9661e10 )
-        image_path = 'data/smart_phase/magnesium_wire.tiff_wire.tiff'
+        image_path = '../data/smart_phase/magnesium_wire.tiff'
         mg = {
             'image': np.transpose(io.imread(image_path))/1.1,
             'experiment_name': 'mg',
@@ -283,7 +267,7 @@ class available_experiments():
             'z01': 470515625,   
             'dsf': 2**0,
             'name': 'mg_wire',
-            'image_path':'data/holograms/magnesium_wire.tiff',
+            'image_path':'../data/holograms/magnesium_wire.tiff',
         }
         mg['fresnel_number'] = get_fresnel_from_cone(**mg)
         return join_dict(join_dict(kwargs, mg), setup_info)
@@ -291,7 +275,7 @@ class available_experiments():
     def jd_spider_hair(self, setup_info=setup_info, **kwargs):
         # (energy=11.0,  px_size=6500.0, z02=19661.0*1e6 )
         spidy = {
-            'image': np.flip(np.transpose(io.imread('data/smart_phase/spider_hair.tiff')))/1.1,
+            'image': np.flip(np.transpose(io.imread('../data/smart_phase/spider_hair.tiff')))/1.1,
             'experiment_name': 'spider_hair',
             'energy': 11.0,
             'pv': 6500.0,
@@ -305,7 +289,7 @@ class available_experiments():
     def jd_tooth(self, setup_info=setup_info, **kwargs):
         # (energy=17.0,  px_size=6500.0, z02=19652000000.0 )
         tooth = {
-            'image': np.flip(np.transpose(io.imread('data/smart_phase/tooth.tiff'))/1.1),
+            'image': np.flip(np.transpose(io.imread('../data/smart_phase/tooth.tiff'))/1.1),
             'experiment_name': 'tooth',
             'energy': 17.0,
             'pv': 6500.0,
@@ -319,8 +303,8 @@ class available_experiments():
         return join_dict(join_dict(kwargs, tooth), setup_info)
 
     def mg_screw_sim(self):
-        attenuation_orig = io.imread('data/screw/ground_truth_projection_attenuation_50000_eV_00002_type_float32_4096x4096.tif')
-        phase_orig = io.imread('data/screw/ground_truth_projection_phase_50000_eV_00002_type_float32_4096x4096.tif')
+        attenuation_orig = io.imread('../data/screw/ground_truth_projection_attenuation_50000_eV_00002_type_float32_4096x4096.tif')
+        phase_orig = io.imread('../data/screw/ground_truth_projection_phase_50000_eV_00002_type_float32_4096x4096.tif')
 
         energy = 50
         pv = 0.00016 *1e-3
@@ -336,7 +320,7 @@ class available_experiments():
         print('shape', phase.shape, attenuation.shape)
         
         # noise_factors = [1, 10, 50, 100, 1000]
-        save_path =  'data/screw/reconstruction/'
+        save_path =  '../data/screw/reconstruction/'
         save_name = 'new_bone_screw'
 
         mg = propagate_others(tensor_to_np(phase), tensor_to_np(attenuation), fresnel_number=fresnel_number, abs_ratio= abs_ratio,  ground_transform_type='reshape', ground_atten_transform_type = 'reshape', transform_type = 'reshape', positive_phase = 'relu_inverted', positive_attenuation = 'gelu', mode = 'reflect',  value = 'median', dsf =2**0,  add_noise = False, noise_type = 'poisson', noise_factor = 0.2, cut = 3)
