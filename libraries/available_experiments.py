@@ -175,7 +175,7 @@ def propagate_others(phase = None, attenuation = None, dsf = 1, abs_ratio = 1, f
     simulation_sphere['fresnel_factor'] = prop.fresnel_factor
     return simulation_sphere
 
-def sim_bubbles_prop(n = 512, m = 512, p= 30,  r = 'any', shape = 'any', numbers = 2, add_all = True, letter = None, fresnel = 1e-3, abs_ratio = 1e-3,transform_type = 'reshape', positive_attenuation='relu', positive_phase='neg', mode = 'reflect', dsf = 1, value = 'constant', **kwargs):
+def sim_bubbles_prop(n = 512, m = 512, p= 30,  r = 'any', shape = 'any', numbers = 2, add_all = True, letter = None, fresnel = 1e-3, abs_ratio = 1, transform_type = 'reshape', positive_attenuation='pos', positive_phase='neg', mode = 'reflect', dsf = 1, value = 'constant', **kwargs):
     # n,m,p,r,shape, add_all, numbers, letter = 128, 128, 10, 2, 'any', True, 2, None
     A_sum, B_sum = multiple_one_matrices(p, n, m, r, shape, add_all, numbers, letter) 
     fresnel_numbers = [fresnel] if type(fresnel) is not list else fresnel
