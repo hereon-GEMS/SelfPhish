@@ -51,6 +51,6 @@ The script will automatically handle the necessary imports and path setup. You c
 1. **Mg-wire data:**
    - [Mg-wire example](https://github.com/hereon-GEMS/SelfPhish/blob/main/examples/mg_wire.ipynb)
 2. **Spider hair:**
-   - [Mg-wire example](https://github.com/hereon-GEMS/SelfPhish/blob/main/examples/spider.ipynb)
+   - [Spider hair example](https://github.com/hereon-GEMS/SelfPhish/blob/main/examples/spider.ipynb)
 
 Enjoy experimenting with SelfPhish! 🚀
