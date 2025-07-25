@@ -11,6 +11,7 @@
    <img src="data/wire/wire.png" alt="Wire Phase Retrieval" width="320"/>
    <img src="data/wire/wire_learn.gif" alt="Wire Phase Retrieval GIF" width="320"/>
 </div>
+
 ## 📦 Installation & Setup
 
 1. **Clone the repo**  
